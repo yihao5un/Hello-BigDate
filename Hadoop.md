@@ -185,37 +185,129 @@
   
 
 - 完全分布式模式
-  
 
+  - 配置ssh无密登陆
 
+    ![Capture1](Hadoop.assets/Capture1.PNG)
 
+  - rsync命令: 远程同步命令(只对**差异文件**作更改) 速度比scp块
 
+    rsync -rvl $pdir/$fname $user@hadoop$host:$pdir
 
+    参数说明: -r 递归 -v 显示复制过程 -l 拷贝符号连接
 
+  - xsync脚本:  **循环复制**文件到**所有**结点的**相同目录**下
 
+    ```shell
+    #!/bin/bash
+    #1 获取输入参数个数，如果没有参数，直接退出
+    pcount=$#
+    if((pcount==0)); then
+    echo no args;
+    exit;
+    fi
+    
+    #2 获取文件名称
+    p1=$1
+    fname=`basename $p1`
+    echo fname=$fname
+    
+    #3 获取上级目录到绝对路径
+    pdir=`cd -P $(dirname $p1); pwd`
+    echo pdir=$pdir
+    
+    #4 获取当前用户名称
+    user=`whoami`
+    
+    #5 循环
+    for((host=130; host<134; host++)); do
+            echo ------------------- Hadoop$host --------------
+            rsync -rvl $pdir/$fname $user@hadoop$host:$pdir
+    done
+    ```
 
+    修改脚本权限 chmod 777 xsync
 
+    > 注意: 需要将该脚本放到 /home/sherlock/bin 下, 这样sherlock用户就可以在系统的任何地方执行了
 
+  - 集群规划
 
+    |      | hadoop101   | hadoop102                   | hadoop103                     |
+    | ---- | ----------- | --------------------------- | ----------------------------- |
+    | HDFS | DataNode    | NameNode DataNode           | SecondaryNameNode    DataNode |
+    | YARN | NodeManager | ResourceManager NodeManager | NodeManager                   |
 
+  - 配置集群
 
+    核心配置文件 core-site.xml
 
+    HDFS 配置文件 hdfs-site.xml
 
+    YARN 配置文件 yarn-site.xml
 
+    MapReduce 配置文件 mapred-site.xml
 
+  - 使用脚本分发到各个服务器
 
+  - 群起集群
 
+    1. salves
 
+    ```
+    hadoop101
+    hadoop102
+    hadoop103
+    ```
 
+    > 注意: 不可以有空格 
 
+    2. 启动集群
 
+       (1) 格式化HDFS的NameNode 
 
+       ```shell
+       bin/hdfs hdfs namenode -format
+       ```
 
+       (2) 启动HDFS
 
+       ```shell
+       sbin/start-dfs.sh
+       ```
 
+       (3) 启动YARN
 
+       ```shell
+       sbin/start-yarn.sh
+       ```
 
+       > 注意：NameNode和ResourceManger如果不是同一台机器，不能在NameNode上启动 YARN，应该在ResouceManager所在的机器上启动YARN
 
+       (4) web端查看SecondaryNameNode
 
+       
 
+    3. 集群基本测试 (上传文件到集群)
 
+    4. 集群启动/停止方式
+
+       ```
+       HDFS
+       start-dfs.sh /stop-dfs.sh(常用 已配置SSH)
+       或
+       hadoop-daemon.sh start/stop namenode/datanode/secondarynamenode
+       YARN
+       start-yarn.sh/ stop-yarn.sh(常用 已配置SSH)
+       或
+       yarn-daemon.sh start/stop resourcemanager/nodemanager
+       ```
+
+       
+
+  - Hadoop 编译源码(采用root角色)
+
+    - 准备jar包 --- hadoop源码、JDK8、maven、ant 、protobuf
+
+    - 解压
+
+    - 安装依赖库
