@@ -84,25 +84,239 @@ HDFS的架构:
 
 
 
+**HDFS的Shell操作**
+
+先启动Hadoop 集群
+
+```shell
+start-dfs.sh
+start-yarn.sh
+```
+
+```shell
+hadoop fs -help 
+```
+
+设置副本数量(指最大副本数)
+
+```shell
+hadoop fs -setrep 5 /aaa/bbb/ccc.txt # 既可以对本地文件系统进行操作还可以操作分布式文件系统！
+hdfs dfs # 只能操作分布式文件系统
+```
+
+这里设置的副本数只是记录在**NameNode**的元数据中，是否真的会有这么多副本，还得看**DataNode**的数量。
+
+默认块大小为128M，128M指的是块的最大大小！每个块最多存储128M的数据，如果当前块存储的数据不满128M。存了多少数据，就占用多少的磁盘空间！一个块只属于一个文件！
+
+因为目前只有3台设备，最多也就3个副本，只有节点数的增加到10台时，副本数才能达到10。
 
 
 
+**HDFS客户端的操作**
 
+- 服务端: 启动NN DN 
 
+- 将Win10编译后的hadoop解压到没有空格的目录
 
+- 设置HADOOP_HOME 环境变量(D:\Dev\hadoop-2.7.2)和Path环境变量(D:\Dev\hadoop-2.7.2\bin D:\Dev\hadoop-2.7.2\sbin)
 
+- 创建maven工程 并配置 log4j.properties
 
+- 创建包名和TestHDFS类
 
+  - 创建目录
 
+  ```java
+  public class TestHDFS{	
+  @Test
+  public void testMkdirs() throws IOException, InterruptedException, URISyntaxException{
+  		
+  		// 1 获取文件系统
+  		Configuration configuration = new Configuration();
+  		// 配置在集群上运行
+  		// configuration.set("fs.defaultFS", "hdfs://hadoop101:9000");
+  		// FileSystem fs = FileSystem.get(configuration);
+  
+  		FileSystem fs = FileSystem.get(new URI("hdfs://hadoop101:9000"), configuration, "sherlock");
+  		
+  		// 2 创建目录
+  		fs.mkdirs(new Path("/aaa/bbb/ccc"));
+  		
+  		// 3 关闭资源
+  		fs.close();
+  	}
+  }
+  ```
 
+  - 文件上传
 
+  ```java
+  @Test
+  public void testCopyFromLocalFile() throws IOException, InterruptedException, URISyntaxException {
+  		// 1 获取文件系统
+  		Configuration configuration = new Configuration();
+  		configuration.set("dfs.replication", "2");
+  		FileSystem fs = FileSystem.get(new URI("hdfs://hadoop102:9000"), configuration, "sherlock");
+  
+  		// 2 上传文件
+  		fs.copyFromLocalFile(new Path("d:/aaa.txt"), new Path("/aaa.txt"));
+  
+  		// 3 关闭资源
+  		fs.close();
+  
+  		System.out.println("upload over");
+  }
+  ```
 
+  - 拷贝hdfs-site.xml 到项目的根目录
 
+    ```xml
+    <?xml version="1.0" encoding="UTF-8"?>
+    <?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+    
+    <configuration>
+    	<property>
+    		<name>dfs.replication</name>
+            <value>1</value>
+    	</property>
+    </configuration>
+    ```
 
+  - 参数优先级 
 
+    1）客户端代码中设置的值 >（2）ClassPath下的用户自定义配置文件 >（3）然后是服务器的默认配置
 
+  - 文件下载
 
+    ```java
+    @Test
+    public void testCopyToLocalFile() throws IOException, InterruptedException, URISyntaxException{
+    		// 1 获取文件系统
+    		Configuration configuration = new Configuration();
+    		FileSystem fs = FileSystem.get(new URI("hdfs://hadoop102:9000"), configuration, "sherlock");
+    		
+    		// 2 执行下载操作
+    		// boolean delSrc 指是否将原文件删除
+    		// Path src 指要下载的文件路径
+    		// Path dst 指将文件下载到的路径
+    		// boolean useRawLocalFileSystem 是否开启文件校验
+    		fs.copyToLocalFile(false, new Path("/aaa.txt"), new Path("d:/aaa.txt"), true);
+    		
+    		// 3 关闭资源
+    		fs.close();
+    }
+    ```
 
+  - 文件夹删除
 
+    ```java
+    @Test
+    public void testDelete() throws IOException, InterruptedException, URISyntaxException{
+    	// 1 获取文件系统
+    	Configuration configuration = new Configuration();
+    	FileSystem fs = FileSystem.get(new URI("hdfs://hadoop102:9000"), configuration, "sherlock");
+    		
+    	// 2 执行删除
+    	fs.delete(new Path("/aaa/"), true);
+    		
+    	// 3 关闭资源
+    	fs.close();
+    }
+    ```
 
+  - 文件名更改
 
+    ```java
+    @Test
+    public void testRename() throws IOException, InterruptedException, URISyntaxException{
+    	// 1 获取文件系统
+    	Configuration configuration = new Configuration();
+    	FileSystem fs = FileSystem.get(new URI("hdfs://hadoop102:9000"), configuration, "sherlock"); 
+    		
+    	// 2 修改文件名称
+    	fs.rename(new Path("/aaa.txt"), new Path("/aaa.txt"));
+    		
+    	// 3 关闭资源
+    	fs.close();
+    }
+    ```
+
+  - 文件详情查看
+
+    ```java
+    @Test
+    public void testListFiles() throws IOException, InterruptedException, URISyntaxException{
+    	// 1获取文件系统
+    	Configuration configuration = new Configuration();
+    	FileSystem fs = FileSystem.get(new URI("hdfs://hadoop102:9000"), configuration, "sherlock"); 
+    		
+    	// 2 获取文件详情
+    	RemoteIterator<LocatedFileStatus> listFiles = fs.listFiles(new Path("/"), true);
+    		
+    	while(listFiles.hasNext()){
+    		LocatedFileStatus status = listFiles.next();
+    			
+    		// 输出详情
+    		// 文件名称
+    		System.out.println(status.getPath().getName());
+    		// 长度
+    		System.out.println(status.getLen());
+    		// 权限
+    		System.out.println(status.getPermission());
+    		// 分组
+    		System.out.println(status.getGroup());
+    			
+    		// 获取存储的块信息
+    		BlockLocation[] blockLocations = status.getBlockLocations();
+    			
+    		for (BlockLocation blockLocation : blockLocations) {
+    				
+    			// 获取块存储的主机节点
+    			String[] hosts = blockLocation.getHosts();
+    				
+    			for (String host : hosts) {
+    				System.out.println(host);
+    			}
+    		}
+    			
+    		System.out.println("-----------分割线----------");
+    	}
+    // 3 关闭资源
+    fs.close();
+    }
+    ```
+
+  - 文件和文件夹的判断
+
+    ```java
+    @Test
+    public void testListStatus() throws IOException, InterruptedException, URISyntaxException{
+    		
+    	// 1 获取文件配置信息
+    	Configuration configuration = new Configuration();
+    	FileSystem fs = FileSystem.get(new URI("hdfs://hadoop102:9000"), configuration, "sherlock");
+    		
+    	// 2 判断是文件还是文件夹
+    	FileStatus[] listStatus = fs.listStatus(new Path("/"));
+    		
+    	for (FileStatus fileStatus : listStatus) {
+    			
+    		// 如果是文件
+    		if (fileStatus.isFile()) {
+    				System.out.println("f:"+fileStatus.getPath().getName());
+    			}else {
+    				System.out.println("d:"+fileStatus.getPath().getName());
+    			}
+    		}
+    		
+    	// 3 关闭资源
+    	fs.close();
+    }
+    ```
+
+- HDFS的I/O操作
+
+  - a
+  - a
+  - a
+  - 
