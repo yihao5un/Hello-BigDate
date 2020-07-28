@@ -314,9 +314,238 @@ hdfs dfs # 只能操作分布式文件系统
     }
     ```
 
-- HDFS的I/O操作
+- HDFS的I/O操作(自定义上传文件)
 
-  - a
-  - a
-  - a
-  - 
+  - 上传
+
+    ```java
+    @Test
+    public void putFileToHDFS() throws IOException, InterruptedException, URISyntaxException {
+    	// 1 获取文件系统
+    	Configuration configuration = new Configuration();
+    	FileSystem fs = FileSystem.get(new URI("hdfs://hadoop102:9000"), configuration, "sherlock");
+    
+    	// 2 创建输入流
+    	FileInputStream fis = new FileInputStream(new File("e:/aaa.txt"));
+    
+    	// 3 获取输出流
+    	FSDataOutputStream fos = fs.create(new Path("/aaa.txt"));
+    
+    	// 4 流对拷
+    	IOUtils.copyBytes(fis, fos, configuration);
+    
+    	// 5 关闭资源
+    	IOUtils.closeStream(fos);
+    	IOUtils.closeStream(fis);
+        fs.close();
+    }
+    ```
+
+    
+
+  - 下载
+
+    ```java
+    // 文件下载
+    @Test
+    public void getFileFromHDFS() throws IOException, InterruptedException, URISyntaxException{
+    	// 1 获取文件系统
+    	Configuration configuration = new Configuration();
+    	FileSystem fs = FileSystem.get(new URI("hdfs://hadoop102:9000"), configuration, "sherlock");
+    		
+    	// 2 获取输入流
+    	FSDataInputStream fis = fs.open(new Path("/aaa.txt"));
+        
+        // 3 获取输出流
+    	FileOutputStream fos = new FileOutputStream(new File("e:/aaa.txt"));
+    		
+    	// 4 流的对拷
+    	IOUtils.copyBytes(fis, fos, configuration);
+    		
+    	// 5 关闭资源
+    	IOUtils.closeStream(fos);
+    	IOUtils.closeStream(fis);
+    	fs.close();
+    }
+    ```
+
+    
+
+  - 文件定位读取(分成很多块)
+
+    下载第一块
+
+    ```java
+    @Test
+    public void readFileSeek1() throws IOException, InterruptedException, URISyntaxException{
+    	// 1 获取文件系统
+    	Configuration configuration = new Configuration();
+    	FileSystem fs = FileSystem.get(new URI("hdfs://hadoop102:9000"), configuration, "sherlock");
+    		
+    	// 2 获取输入流
+    	FSDataInputStream fis = fs.open(new Path("/hadoop-2.7.2.tar.gz"));
+    		
+    	// 3 创建输出流
+    	FileOutputStream fos = new FileOutputStream(new File("e:/hadoop-2.7.2.tar.gz.part1"));
+    		
+    	// 4 流的拷贝
+    	byte[] buf = new byte[1024]; // 每次 1k
+    		
+    	for(int i =0 ; i < 1024 * 128; i++){
+            // 1k * 1k * 128 ---> 128M
+            // BLK1: 0 --- 127M
+            // BLK2：128 --- 255M
+            // BLK3：256 --- 383M
+            // BLK4：384 --- leaf
+    		fis.read(buf);
+    		fos.write(buf);
+    	}
+    		
+    	// 5关闭资源
+    	IOUtils.closeStream(fis);
+    	IOUtils.closeStream(fos);
+    }
+    ```
+
+    下载第二块
+
+    ```java
+    @Test
+    public void readFileSeek2() throws IOException, InterruptedException, URISyntaxException{
+    	// 1 获取文件系统
+    	Configuration configuration = new Configuration();
+    	FileSystem fs = FileSystem.get(new URI("hdfs://hadoop102:9000"), configuration, "sherlock");
+    		
+    	// 2 打开输入流
+    	FSDataInputStream fis = fs.open(new Path("/hadoop-2.7.2.tar.gz"));
+    		
+    	// 3 定位输入数据位置
+    	fis.seek(1024*1024*128);
+    		
+    	// 4 创建输出流
+    	FileOutputStream fos = new FileOutputStream(new File("e:/hadoop-2.7.2.tar.gz.part2"));
+    		
+    	// 5 流的对拷
+    	IOUtils.copyBytes(fis, fos, configuration);
+    		
+    	// 6 关闭资源
+    	IOUtils.closeStream(fis);
+    	IOUtils.closeStream(fos);
+    }
+    ```
+
+    
+
+  - HDFS的数据流
+
+    - 写数据流
+
+      ![Selection_005](HDFS.assets/Selection_005.png)
+
+      1）客户端通过**Distributed FileSystem**模块向**NameNode**请求上传文件，NameNode检查目标文件是否已存在，父目录是否存在。
+
+      2）NameNode返回**是否可以上传**。
+
+      3）客户端请求第一个 **Block**上传到哪几个**DataNode**服务器上。
+
+      4）NameNode返回**3个DataNode**节点，分别为dn1、dn2、dn3。
+
+      5）客户端通过**FSDataOutputStream**模块请求dn1上传数据，dn1收到请求会继续调用dn2，然后dn2调用dn3，将这个**通信管道**建立完成。
+
+      6）dn1、dn2、dn3逐级**应答**客户端。
+
+      7）客户端开始往dn1上传第一个**Block**（先从磁盘读取数据放到一个**本地内存缓存**），以**Packet(64K)**为单位，dn1收到一个Packet就会传给dn2，dn2传给dn3；**dn1每传一个packet会放入一个应答队列(dataQuene(待发送数据包))等待应答。**每个节点收到packet后 向客户端发送ack确认消息 
+
+      如果一个packet 在发送后 已经收到了所有的消息那么packet会在ackqueue中删除
+
+      如果发送后收到的DN返回ack确认消息超时 那么传输中止 packet回滚到dataQueue后重新建立通道并剔除坏的DN节点 NN自动维护副本数
+
+      8）当一个Block传输完成之后，客户端**再次请求**NameNode上传第**二个**Block的服务器。（重复执行3-7步）。
+
+    > 总结:
+    >
+    > ①服务端启动HDFS中的NN和DN进程
+    > ②客户端创建一个分布式文件系统客户端，由客户端向NN发送请求，请求上传文件
+    > ③NN处理请求，检查客户端是否有权限上传，路径是否合法等
+    > ④检查通过，NN响应客户端可以上传
+    > ⑤客户端根据自己设置的块大小，开始上传第一个块，默认0-128M,
+    >   NN根据客户端上传文件的副本数(默认为3)，根据机架感知策略选取指定数量的DN节点返回
+    > ⑥客户端根据返回的DN节点，请求建立传输通道
+    > 	客户端向最近(网络距离最近)的DN节点发起通道建立请求，由这个DN节点依次向通道中的(距离当前DN距离最近)
+    > 	下一个节点发送建立通道请求，各个节点发送响应 ，通道建立成功
+    > ⑦客户端每读取64K的数据，封装为一个packet(数据包，传输的基本单位)，将packet发送到通道的下一个节点
+    > 	通道中的节点收到packet之后，落盘(检验)存储，将packet发送到通道的下一个节点！
+    > 	每个节点在收到packet后，向客户端发送ack确认消息！
+    > ⑧一个块的数据传输完成之后，通道关闭，DN向NN上报消息，已经收到某个块
+    > ⑨第一个块传输完成，第二块开始传输，依次重复⑤-⑧，直到最后一个块传输完成，NN向客户端响应传输完成！
+    > 	客户端关闭输出流
+    > 	
+
+    
+
+    ​		网络拓扑-节点距离计算
+
+    ​		在HDFS写数据的过程中，NameNode会选择距离待上传数据最近距离的DataNode接收数据
+
+    ​		**节点距离: 两个节点到达最近的共同祖先的距离总和**
+
+    ​		![Selection_006](HDFS.assets/Selection_006.png)
+
+    
+
+    > 在同一节点上，它们之间的距离当然是0，2*0=0
+    >
+    > 在同一机架上的不同节点，它们的共同祖先就是这个机架，而这两个节点到机架的距离都是1，所以这两个节点的距离为1+1=2
+    >
+    > 在同一集群的不同机架上的节点，它们的共同祖先是集群，而这两个节点要到达集群，首先要到这个机架(距离1)，然后到达集群(距离2)，所以两个节点的距离为2+2=4
+    >
+    > 在同一数据中心的不同集群上的节点，它们的共同祖先是数据中心，以此类推，一个节点到数据中心的距离是3，两个节点的距离就是3+3=6
+
+    ​		
+
+    ​		机架感知(副本存储节点选择)
+
+    ​		![Selection_007](HDFS.assets/Selection_007.png)
+
+    ​	第二个DN节点在本地最多为2个(为了快) 第三个DN节点是为了安全性而设定
+
+    - 读数据流
+
+      
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
