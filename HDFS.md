@@ -511,23 +511,180 @@ hdfs dfs # 只能操作分布式文件系统
 
     - 读数据流
 
-      
+    ![Selection_008](HDFS.assets/Selection_008-1595993390454.png)
+
+    1）客户端通过Distributed FileSystem向NameNode请求下载文件，NameNode通过查询元数据，找到文件块所在的DataNode地址。
+
+    2）挑选一台DataNode（就近原则，然后随机）服务器，请求读取数据。
+
+    3）DataNode开始传输数据给客户端（从磁盘里面读取数据输入流，以Packet为单位来做校验）。
+
+    4）客户端以Packet为单位接收，先在本地缓存，然后写入目标文件。
 
 
 
+NN 和 2NN 工作机制
+
+![Selection_009](HDFS.assets/Selection_009.png)
+
+第一阶段: NameNode 的启动
+
+​	1) 第一次启动NameNode **格式化**后 , **创建Fsimage和Edits**文件 如果不是第一次启动，直接加载编辑日志和镜像文件到内存。
+
+​	2) 客户端对元数据进行增删改查请求
+
+​	3) NameNode 记录操作日志 更新**滚动日志**
+
+​	4) NameNode **在内存**中对数据进行增删改(有点像**Redis**)
 
 
 
+第二阶段: Secondary NameNode 的启动
+
+​	1) Secondary NameNode询问NameNode是否需要CheckPoint。直接带回NameNode是否检查结果。
+
+​	2) Secondary NameNode请求执行CheckPoint。
+
+​	3) NameNode滚动正在写的Edits日志。
+
+​	4) 将滚动前的编辑日志和镜像文件拷贝到Secondary NameNode。
+
+​	5) Secondary NameNode加载编辑日志和镜像文件到内存，并合并。
+
+​	6) 生成新的镜像文件fsimage.chkpoint。
+
+​	7) 拷贝fsimage.chkpoint到NameNode。
+
+​	8) NameNode将fsimage.chkpoint重新命名成fsimage。
 
 
 
+> NN 和 2NN工作机制详解:
+>
+> Fsimage：NameNode内存中元数据序列化后形成的文件。
+>
+> Edits：记录客户端更新元数据信息的每一步操作（可通过Edits运算出元数据）。
+>
+> ----------------------------------------------------------------------------------------------------------------------------------------------------
+>
+> NameNode启动时，先滚动Edits并生成一个空的edits.inprogress，然后加载Edits和Fsimage到内存中，此时NameNode内存就持有最新的元数据信息。
+>
+> ----------------------------------------------------------------------------------------------------------------------------------------------------
+>
+> Client开始对NameNode发送元数据的增删改的请求，这些请求的操作首先会被记录到edits.inprogress中（查询元数据的操作不会被记录在Edits中，因为查询操作不会更改元数据信息），如果此时NameNode挂掉，重启后会从Edits中读取元数据的信息。
+>
+> ---
+>
+> NameNode会在内存中执行元数据的增删改的操作。
+>
+> ---
+>
+> 由于Edits中记录的操作会越来越多，Edits文件会越来越大，导致NameNode在启动加载Edits时会很慢，所以需要对Edits和Fsimage进行合并（所谓合并，就是将Edits和Fsimage加载到内存中，照着Edits中的操作一步步执行，最终形成新的Fsimage）。SecondaryNameNode的作用就是帮助NameNode进行Edits和Fsimage的合并工作。
+>
+> ---
+>
+> SecondaryNameNode首先会询问NameNode是否需要CheckPoint（触发CheckPoint需要满足两个条件中的任意一个，定时时间到和Edits中数据写满了）。直接带回NameNode是否检查结果。SecondaryNameNode执行CheckPoint操作，首先会让NameNode滚动Edits并生成一个空的edits.inprogress，滚动Edits的目的是给Edits打个标记，以后所有新的操作都写入edits.inprogress，其他未合并的Edits和Fsimage会拷贝到SecondaryNameNode的本地，然后将拷贝的Edits和Fsimage加载到内存中进行合并，生成fsimage.chkpoint，然后将fsimage.chkpoint拷贝给NameNode，重命名为Fsimage后替换掉原来的Fsimage。NameNode在启动时就只需要加载之前未合并的Edits和Fsimage即可，因为合并过的Edits中的元数据信息已经被记录在Fsimage中。
+
+​	
+
+​	Fsimage 和 Edits概念
+
+​	格式化后: 在/opt/module/hadoop-2.7.2/data/tmp/dfs/name/current目录中产生如下文件 fsimage_000000000  fsimage_00000000000.md5 seen_txid VERSION 
+
+​	(1) fsimage文件 HDFS文件系统元数据的一个 **永久性的检查点** (包括HDFS文件系统的所有目录和文件idnode的序列化信息)
+
+​	(2) Edits 文件 存放HDFS文件系统的所有更新操作的路径 文件系统客户端执行的所有写操作首先会被记录到Edits文件中
+
+​	(3) seen_txid 文件保存的是一个数字 就是最后一个edits_的数字
+
+​	(4) 每次NameNode **启动的时候** 都会将fsimage文件读入内存 加载Edits里面的更新操作 保证内存中的元数据总是最新的 同步的 (可以看成NameNode启动的时候就将fsimage和edits文件进行了**合并**)
 
 
 
+- **oiv** 查看 **Fsimage** 文件
 
+  ```xml
+  hdfs oiv -p 文件类型 -i镜像文件 -o 转换后文件输出路径
+  ```
 
+  实例: 
 
+  ```xml
+  hdfs oiv -p XML -i fsimage_0000000000000000025 -o /opt/module/hadoop-2.7.2/fsimage.xml
+  ```
 
+  > 在集群启动后，要求DataNode上报数据块信息，并间隔一段时间后再次上报。
+
+  
+
+- **oev** 查看**Edits** 文件
+
+  ```xml
+  hdfs oev -p 文件类型 -i编辑日志 -o 转换后文件输出路径
+  ```
+
+  实例:
+
+  ```
+  hdfs oev -p XML -i edits_0000000000000000012-0000000000000000013 -o /opt/module/hadoop-2.7.2/edits.xml
+  ```
+
+- CheckPoint 时间设置
+
+  通常2NN每隔一小时 / 操作次数达到100w时 执行一次
+
+  hdfs-default.xml
+
+  ```xml
+  <property>
+    <name>dfs.namenode.checkpoint.period</name>
+    <value>3600</value>
+  </property >
+  ```
+
+  ```xml
+  <property>
+    <name>dfs.namenode.checkpoint.txns</name>
+    <value>1000000</value>
+  <description>操作动作次数</description>
+  </property>
+  ```
+
+- NameNode 故障处理
+
+  方法一: 
+
+  将SecondaryNameNode中数据拷贝到NameNode存储数据的目录
+
+  方法二: 
+
+  使用-importCheckpoint 选项启动 NameNode 守护进程 从而将2NN 中数据拷贝到 NameNode目录中
+
+  hdfs-site.xml
+
+  ```xml
+  <property>
+    <name>dfs.namenode.checkpoint.period</name>
+    <value>120</value>
+  </property>
+  
+  <property>
+    <name>dfs.namenode.name.dir</name>
+    <value>/opt/module/hadoop-2.7.2/data/tmp/dfs/name</value>
+  </property>
+  ```
+
+  > 如果SecondaryNameNode不和NameNode在一个主机节点上，需要将SecondaryNameNode存储数据的目录拷贝到NameNode存储数据的平级目录，并删除in_use.lock文件
+
+  导入检查点数据
+
+  hdfs namenode -importCheckpoint
+
+  
+
+- 集群安全模式
+
+  
 
 
 
