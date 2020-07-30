@@ -684,25 +684,59 @@ NN 和 2NN 工作机制
 
 - 集群安全模式
 
+  - ![Selection_010](HDFS.assets/Selection_010-1596077750569.png)
+
+  ```shell
+  （1）bin/hdfs dfsadmin -safemode get		（功能描述：查看安全模式状态）
+  （2）bin/hdfs dfsadmin -safemode enter  	（功能描述：进入安全模式状态）
+  （3）bin/hdfs dfsadmin -safemode leave	（功能描述：离开安全模式状态）
+  （4）bin/hdfs dfsadmin -safemode wait	（功能描述：等待安全模式状态）
+  ```
+
+  - NameNode 的多目录配置
+
+    hdfs-site.xml
+
+    ```xml
+    <property>
+        <name>dfs.namenode.name.dir</name>
+    <value>file:///${hadoop.tmp.dir}/dfs/name1,file:///${hadoop.tmp.dir}/dfs/name2</value>
+    </property>
+    ```
+
+- DateNode
+
+  - 工作机制
+
+    ![Selection_011](HDFS.assets/Selection_011.png)
+
   
 
+  - 数据完整性
 
+    ![Selection_012](HDFS.assets/Selection_012.png)
 
+    1）当DataNode读取Block的时候，它会计算CheckSum。
 
+    2）如果计算后的CheckSum，与Block创建时值不一样，说明Block已经损坏。
 
+    3）Client读取其他DataNode上的Block。
 
+  - DateNode 掉线时限参数设置(10分钟30秒)
 
+    ![Selection_013](HDFS.assets/Selection_013.png)
 
+- 服役新节点
 
+  > 删除原来HDFS文件系统留存的文件（/opt/module/hadoop-2.7.2/data和log
 
+- 退役旧节点
 
+  - 添加白名单
 
+    添加到白名单的主机，都允许访问NameNode，不在白名单的主机，都会被退出。
 
+  - 黑名单退役
 
-
-
-
-
-
-
+    在黑名单上面的主机都会被强制退出。
 
