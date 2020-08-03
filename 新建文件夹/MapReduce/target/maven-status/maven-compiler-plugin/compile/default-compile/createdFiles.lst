@@ -1,0 +1,3 @@
+com\atguigu\mr\wordcount\WCDriver.class
+com\atguigu\mr\wordcount\WCMapper.class
+com\atguigu\mr\wordcount\WCReducer.class
