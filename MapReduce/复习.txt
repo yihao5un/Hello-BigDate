@@ -1,0 +1,100 @@
+一、Namenode
+1.作用
+		①负责元数据的存储
+		②负责接受和处理客户端的请求
+		③负责接受DN上报的信息
+		④和DN保持心跳，向DN下达命令
+		
+2.元数据
+包含两部分
+	①文件的属性(保存在edits+fsimage)
+	②块的位置信息(由DN启动后自动上报，动态生成)
+	
+3.存储元数据的文件
+①edits文件：  NN启动后，客户端每次的写操作都会记录在edits文件中
+②fsimage文件：  
+			在NN第一次格式化时生成，在NN每次执行checkpoint，满足条件后，会重新将内存中合并后的元数据
+			持久化到fsimage文件中
+			
+4.checkpoint
+	每次Namenode会定期进行checkpoint，主要了为了防止在运行期间产生大量的edits文件，导致下次重启时
+	恢复时间过长！
+	
+	定期将edits文件中新的内容，持久化到fsimage文件中，进行快照存储！
+	
+	默认的机制： 
+		①没间隔1h，执行一次
+		②距离上次，又新产生了100w次txns操作
+		
+5.NN的安全模式
+		NN的安全模式主要是为了接受DN上报块信息！
+		
+		每次NN启动时，会自动进入安全模式！在安全模式只能有限读，不能写！
+		
+		当DN上报的块的最小副本数的总数 / 块的总数 > 0.999时，NN会在30秒后自动离开！
+		
+		手动操作：  hdfs dfsadmin -safemode  get|enter|leave|wait
+		
+二、SecondaryNamenode
+		如果配置了SecondaryNamenode，2nn会帮助NN进行checkpoint操作！
+		
+三、Datanode
+1.作用
+		①接受客户端的读写块请求
+		②DN负责维护块的完整性，通过定期检查块的校验和判断块是否损坏
+			损坏的块，DN会自动删除，在下次启动时，不会上报给NN
+		③DN负责定期向NN汇报块的信息，接收NN的其他任务(复制块等)
+		
+2.Datanode的掉线时长
+		DN和NN每间隔dfs.heartbeat.interval(3s)进行一次心跳！
+		如果DN和NN上一次心跳举例当前时间，
+		已经过了2*dfs.namenode.heartbeat.recheck-interval(5min)+10*dfs.heartbeat.interval,
+		NN会将DN的状态标记为DEAD！
+		
+四、其他配置
+1.NN的多目录配置
+		NN的多目录指对元数据进行多个目录的同时备份，通过hdfs-site.xml中的dfs.namenode.name.dir进行设置！
+		
+2.DN的多目录配置
+		如果机器添加了新的磁盘，希望DN在写入块时，向新磁盘的目录进行写入！
+		配置DN的多目录！
+		通过hdfs-site.xml中dfs.datanode.data.dir进行配置
+		
+3.服役新节点
+		①准备机器，安装软件，配置NN，RM的相关配置
+		②启动datanode和nodemanager进程即可
+		
+		
+		服役了新的DN节点后，可以执行再平衡的命令，这个命令可以将集群中块进行重新平衡分配！
+		./start-balancer.sh
+		
+4.白名单
+		白名单是为了阻止某个进程加入集群！
+		白名单之外的机器，无法进入集群！
+		白名单通过hdfs-site.xml中的dfs.hosts配置！
+		可以使用 hdfs dfsadmin -refreshNodes刷新配置，读取此配置信息！
+		
+5.黑名单
+		退役datanode!
+		黑名单通过hdfs-site.xml中的dfs.hosts.exclude配置！
+		黑名单中的机器在最后一次启动时，会将当前机器的块移动到其他节点！
+		注意: 如果当前集群中在线的DN节点不满足某些文件的副本数要求，当前退役节点是无法退役完成！
+		
+6.集群间的拷贝
+		hadoop distcp  hdfs://xxxx:xxx/xxx   hdfs://xxxx:xxx/xxx  
+		
+7.在线归档
+		归档：  hadoop arichieve  -archievename 归档文件名  -p 父目录  输入文件...  输出目录 
+		使用：  hadoop fs -ls  har:///归档文件名
+		
+		在线归档不会删除原文件！
+		
+五、MapReduce
+1.运行流程
+		                                                                   Map------------------------Reduce阶段
+split(切片)----read(读取数据，封装为输入的k-v)---map(Mapper.map())----sort(分区和排序)-----------------copy(拷贝分区数据)-------sort(合并且排序)-----reduce(合并)------write(写出数据)	
+
+	
+
+
+
