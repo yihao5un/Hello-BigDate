@@ -687,25 +687,23 @@
 
     5. 片和块的关系
 
-    片(InputSplit)：
+       - 片(InputSplit)：
 
-    在计算MR程序时，才会切片。片在运行程序时，临时将文件从逻辑上划分为若干部分！
+       在计算MR程序时，才会切片。片在运行程序时，临时将文件从逻辑上划分为若干部分！
 
-    使用的输入格式不同，切片的方式不同，切片的数量也不同！
+       使用的输入格式不同，切片的方式不同，切片的数量也不同！
 
-    每片的数据最终也是以块的形式存储在HDFS！
+       每片的数据最终也是以块的形式存储在HDFS！
 
-    块(Block)： 
+       - 块(Block)： 
 
-    在向HDFS写文件时，文件中的内容以块为单位存储！块是实际的物理存在！
+       在向HDFS写文件时，文件中的内容以块为单位存储！块是实际的物理存在！
 
-    
+    建议： 
 
-    建议： 片大小最好等于块大小！
+    ​		片大小最好等于块大小！将片大小设置和块大小一致，可以最大限度减少因为切片带来的磁盘IO和网络IO!
 
-    ​		将片大小设置和块大小一致，可以最大限度减少因为切片带来的磁盘IO和网络IO!
-
-    原因： MR计算框架速度慢的原因在于在执行MR时，会发生频繁的磁盘IO和网络IO!
+    ​		原因： MR计算框架速度慢的原因在于在执行MR时，会发生频繁的磁盘IO和网络IO!
 
     优化MR ： 减少磁盘IO和网络IO！
 
@@ -713,181 +711,175 @@
 
     二、常见的输入格式
 
-    1. TextInputFormat
+    1. *TextInputFormat*
 
-         TextInputFormat常用于输入目录中全部是文本文件！
+         TextInputFormat 常用于输入目录中全部是**文本**文件！
 
-         切片：  默认的切片策略
+         切片:  默认的切片策略
 
-    ​	     RecordReader:  LineRecordReader,一次处理一行，将一行内容的偏移量作为key，一行内容作为value!
+         RecordReader:  LineRecordReader,一次处理一行，将一行内容的偏移量作为key，一行内容作为value!
 
     ​			LongWritable	key
 
-    ​			Text value
+    ​			Text 					value
 
-    2. NlineInputFormat
-
-       ​	切片： 读取配置中mapreduce.input.lineinputformat.linespermap，默认为1，以文件为单位，切片每此参数行作为1片！
+    2. *NlineInputFormat*
 
        ​	RecordReader:  LineRecordReader,一次处理一行，将一行内容的偏移量作为key，一行内容作为value!
 
+       切片： 读取配置中mapreduce.input.lineinputformat.linespermap，默认为1，以文件为单位，切片每此参数行作为1片！
+
     ​			LongWritable	key
 
-    ​			Text value
+    ​			Text 					value
 
-    3. KeyValueTextInputFormat
+    3. *KeyValueTextInputFormat*
 
-    ​	作用： 针对文本文件！使用分割字符，将每一行分割为key和value!
+       ​	作用： 针对文本文件！使用分割字符，将每一行分割为key和value!
 
     ​		   如果没有找到分隔符，当前行的内容作为key，value为空串!
 
     ​           默认分隔符为\t，可以通过参数mapreduce.input.keyvaluelinerecordreader.key.value.separator指定！
 
-       切片：默认的切片策略
+       		切片：默认的切片策略
 
-       RR ： KeyValueLineRecordReader
+       		RR ： KeyValueLineRecordReader
 
-    ​			Text key:
+    ​						Text 	key:
 
-    ​			Text value
+    ​						Text 	value
 
-    ​	4. ConbineTextInputFormat
+    ​	4. *ConbineTextInputFormat*
 
-    ​	作用： 改变了传统的切片方式！将多个小文件，划分到一个切片中！
+    ​			作用： 改变了传统的切片方式！将多个小文件，划分到一个切片中！
 
-    ​			适合小文件过多的场景！
+    ​			适合**小文件过多**的场景！
 
-    
+    ​			RecordReader:  LineRecordReader,一次处理一行，将一行内容的偏移量作为key，一行内容作为value!
 
-    RecordReader:  LineRecordReader,一次处理一行，将一行内容的偏移量作为key，一行内容作为value!
+    ​			LongWritable		key
 
-    ​			LongWritable	key
+    ​			Text 						value
 
-    ​			Text value
+    ​			切片：  先确定片的最大值maxSize，maxSize通过参数mapreduce.input.fileinputformat.split.maxsize设置！
 
-    ​	切片：  先确定片的最大值maxSize，maxSize通过参数mapreduce.input.fileinputformat.split.maxsize设置！
+    ​			流程： a. 以文件为单位，将每个文件划分为若干part
 
-    ​		流程： a. 以文件为单位，将每个文件划分为若干part
+    ​						①判断文件的待切部分的大小 <=  maxSize,整个待切部分作为1part
 
-    ​				①判断文件的待切部分的大小 <=  maxSize,整个待切部分作为1part
+    ​                		②maxsize < 文件的待切部分的大小 <= 2* maxSize,将整个待切部分均分为2part
 
-    ​                ②maxsize < 文件的待切部分的大小 <= 2* maxSize,将整个待切部分均分为2part
-
-    ​				③文件的待切部分的大小 > 2* maxSize,先切去maxSize大小，作为1部分，剩余待切部分继续判断！
+    ​						③文件的待切部分的大小 > 2* maxSize,先切去maxSize大小，作为1部分，剩余待切部分继续判断！
 
     
 
-    ​	举例： maxSize=2048
-
-    ​			a.txt  4.38KB
-
-    ​			part1(a.txt,0,2048)
-
-    ​			part2(a.txt,2048,1219)
-
-    ​			part3(a.txt.3xxx,1219)
-
-    ​			
-
-    ​			b.txt  4.18KB
-
-    ​			part4(b.txt,0,2048)
-
-    ​			part5(b.txt,2048,1116)
-
-    ​			part6(b.txt,3xxx,1116)
+    > 举例： maxSize=2048
+    >
+    > ​			a.txt  4.38KB
+    >
+    > ​			part1(a.txt,0,2048)
+    >
+    > ​			part2(a.txt,2048,1219)
+    >
+    > ​			part3(a.txt.3xxx,1219)
+    >
+    > ​			
+    >
+    > ​			b.txt  4.18KB
+    >
+    > ​			part4(b.txt,0,2048)
+    >
+    > ​			part5(b.txt,2048,1116)
+    >
+    > ​			part6(b.txt,3xxx,1116)
+    >
+    > ​	
+    >
+    > ​			c.txt   2.71kb
+    >
+    > ​			part7(c.txt,0 ,13xxx)
+    >
+    > ​			part8(c.txt,13 ,27xx)
+    >
+    > 
+    >
+    > ​			d.txt   5.04kb
+    >
+    > ​		    part9(d.txt,0,2048)
+    >
+    > ​			part10(d.txt,2048,1519)
+    >
+    > ​			part11(a.txt.3xxx,1519)
+    >
+    > ​	
+    >
+    > b. 将之前切分的若干part进行累加，累加后一旦累加的大小超过 maxSize，这些作为1片！
 
     ​	
-
-    ​			c.txt   2.71kb
-
-    ​			part7(c.txt,0 ,13xxx)
-
-    ​			part8(c.txt,13 ,27xx)
-
-    
-
-    ​			d.txt   5.04kb
-
-    ​		    part9(d.txt,0,2048)
-
-    ​			part10(d.txt,2048,1519)
-
-    ​			part11(a.txt.3xxx,1519)
-
-    
-
-    ​		b. 将之前切分的若干part进行累加，累加后一旦累加的大小超过 maxSize，这些作为1片！
-
-    
 
     三、关键设置
 
     1.如何设置MapTask的数量
 
-    MapTask的数量，人为设置是无效的！只能通过切片方式来设置！MapTask只取决于切片数！
+    ​	MapTask的数量，人为设置是无效的！只能通过切片方式来设置！MapTask只取决于切片数！
 
     
 
     四、Job提交流程阶段总结
 
-    1.准备阶段
+    1. 准备阶段
 
-    运行Job.waitForCompletion(),先使用JobSubmitter提交Job，在提交之前，会在Job的作业目录中生成以下信息：
+    ​	运行Job.waitForCompletion(),先使用JobSubmitter提交Job，在提交之前，会在Job的作业目录中生成以下信息：
 
-    job.split:  当前Job的切片信息，有几个切片对象
+    ​	job.split:  当前Job的切片信息，有几个切片对象
 
-    job.splitmetainfo: 切片对象的属性信息
+    ​	job.splitmetainfo: 切片对象的属性信息
 
-    job.xml: job所有的属性配置
-
-    
+    ​	job.xml: job所有的属性配置
 
     2. 提交阶段
 
-    本地模式： LocalJobRunner进行提交！
+       本地模式： LocalJobRunner进行提交！
 
-    ​			创建一个LocalJobRunner.Job()
+    ​		创建一个LocalJobRunner.Job()
 
-    ​			Job.start()  //作业启动
+    ​		Job.start()  //作业启动
 
-    Map阶段： 采用线程池提交多个MapTaskRunable线程！
+    ​		Map阶段： 采用线程池提交多个MapTaskRunable线程！
 
-    ​				每个MapTaskRunable线程上，实例化一个MapTask对象！
+    ​					每个MapTaskRunable线程上，实例化一个MapTask对象！
 
-    ​				每个MapTask对象，实例化一个Mapper!
+    ​					每个MapTask对象，实例化一个Mapper!
 
-    ​				Mapper.run()
+    ​					Mapper.run()
 
-    ​			线程运行结束，会在线程的作业目录中生成 file.out文件，保存MapTask输出的所有的key-value!
-
-    
-
-    ​			阶段定义： 如果有reduceTask，MapTask运行期间，分为 map(67%)---sort(33%)
-
-    ​								没有ReduceTask，MapTask运行期间，分为 map(100%)
-
-    ​			map: 使用RR将切片中的数据读入到Mapper.map() -------context.write(key,value)
-
-    ​			
-
-    ​			Reduce阶段： 采用线程池提交多个ReduceTaskRunable线程！
-
-    ​				每个ReduceTaskRunable线程上，实例化一个ReduceTask对象！
-
-    ​				每个ReduceTask对象，实例化一个Reduce!
-
-    ​				reducer.run()
-
-    ​				线程运行结束，会在输出目录中生成part-r-000x文件，保存ReduceTask输出的所有的key-value!
+    ​					线程运行结束，会在线程的作业目录中生成 file.out文件，保存MapTask输出的所有的key-value!
 
     
 
-    ​			阶段定义： copy：  使用shuffle线程拷贝MapTask指定分区的数据！
+    ​		阶段定义： 如果有reduceTask，MapTask运行期间，分为 map(67%)---sort(33%)
 
-    ​						sort: 将拷贝的所有的分区的数据汇总后，排序
+    ​							没有ReduceTask，MapTask运行期间，分为 map(100%)
 
-    ​						reduce :  对排好序的数据，进行合并！
+    ​		map: 使用RR将切片中的数据读入到Mapper.map() -------context.write(key,value)
+
+    ​		Reduce阶段： 采用线程池提交多个ReduceTaskRunable线程！
+
+    ​								每个ReduceTaskRunable线程上，实例化一个ReduceTask对象！
+
+    ​								每个ReduceTask对象，实例化一个Reduce!
+
+    ​								reducer.run()
+
+    ​						线程运行结束，会在输出目录中生成part-r-000x文件，保存ReduceTask输出的所有的key-value!
+
+    
+
+    ​		阶段定义： copy：  使用shuffle线程拷贝MapTask指定分区的数据！
+
+    ​							sort: 将拷贝的所有的分区的数据汇总后，排序
+
+    ​							reduce :  对排好序的数据，进行合并！
 
     ​		
 
