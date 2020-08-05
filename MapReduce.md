@@ -881,29 +881,52 @@
 
     ​							reduce :  对排好序的数据，进行合并！
 
-    ​		
+
+
+- Shuffle 机制
+
+![Selection_016](MapReduce.assets/Selection_016.png)
+
+系统执行排序的过程(将Mapper 输出作为Reducer)称为Shuffle
+
+Partitiom 分区
+
+![Selection_017](MapReduce.assets/Selection_017.png)
+
+- ReduceTask 的工作机制
+
+![Selection_018](MapReduce.assets/Selection_018.png)
+
+(1)**Copy 阶段**:ReduceTask 从各个 MapTask 上远程拷贝一片数据,并针对某一片数据,如果其大小超过一定阈值,则写到磁盘上,否则直接放到内存中。
+
+(2)**Merge 阶段**:在远程拷贝数据的同时,ReduceTask 启动了**两个后台线程**对内存和磁盘上的文件进行合并,以防止内存使用过多或磁盘上文件过多。
+
+(3**)Sort 阶段**:按照 MapReduce 语义,用户编写 reduce()函数输入数据是按 key 进行聚集的一组数据。为了将 key相同的数据聚在一起,Hadoop 采用了**基于排序的策略**。由于各个 MapTask 已经实现对自己的处理结果进行了**局部排序**,因此,ReduceTask 只需对所有数据进行一次**归并排序**即可。
+
+(4)**Reduce 阶段**:reduce()函数将计算结果写到 **HDFS** 上
 
 
 
+- Reduce Join 原理
+
+Map 端的主要工作 ，打上标签以确定不同的key/value数据来源。缺点是 在shuffle阶段会有很大的数据传输 会影响效率。
 
 
 
+- 数据清洗 
+
+清除不符合用户的数据 过程只需要Mapper程序 不需要Reduce过程
 
 
 
+- MapReduce 开发总结
 
+  ![Selection_019](MapReduce.assets/Selection_019.png)
 
+  ![Selection_020](MapReduce.assets/Selection_020.png)
 
+  ![Selection_021](MapReduce.assets/Selection_021-1596618405832.png)
 
+  ​	![Selection_021](MapReduce.assets/Selection_022.png)
 
-
-
-
-
-
-
-
-
-
-
-
+  ​		![Selection_023](MapReduce.assets/Selection_023.png)
