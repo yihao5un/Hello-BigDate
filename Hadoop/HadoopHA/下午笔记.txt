@@ -1,0 +1,127 @@
+一、压缩
+
+1.压缩的目的
+		压缩的目的是在MR运行期间，提高MR运行的效率！
+		压缩可以减少MR运行期间的磁盘IO和网络IO！
+		
+2.压缩的原则
+		IO密集型，多用压缩！
+		计算密集型，CPU负载过重，少用压缩！
+		
+3.Hadoop支持的压缩格式
+
+默认：  deflate,bzip2,gzip
+额外安装的：  lzo,snappy
+
+特点：  bzip2压缩比最高，压缩速度最慢
+		snappy压缩速度最快，压缩比凑合
+		deflate，gzip折中
+		
+使用便利性：  LZO压缩格式最麻烦！
+					①额外安装LZO压缩格式
+					②如果JOB输入目录中的文件为LZO压缩格式，需要为每个文件创建索引
+						如果不创建索引，那么输入的文件无法切片，整个文件作为1片
+					 还需要使用LZO特定的输入格式，使用LZOInputFormat！
+					 
+			其他的压缩格式，和纯文本文件使用一致的，不需要额外设置！
+			
+可切片的角度：  
+			 如果Job的输入采用了以下压缩格式，只有以下格式支持切片！
+			 只有bzip2和lzo可以切片！
+			 
+使用场景：
+		Bzip2：  对速度没有要求，常作为reduce输出结果的压缩格式！
+				即便job运行后，输出的结果还需要被另一个Job继续处理，Bzip2格式也可以支持切片！
+				
+		Lzo:    作为Job输入文件的压缩格式！
+		
+		Snappy: 作为shuffle阶段的压缩格式！
+		
+		
+		Mapper 运算结束后，需要向磁盘溢写  500M的数据，没有用压缩之前，写的速度100M/s
+		 采用了Snappy压缩，需要向磁盘溢写  500M的数据，采用了snappy压缩，写的速度100M/s，500M--->300M
+		 
+		Reduce拷贝300M的数据----> 解压缩（速度很快，解压缩消耗的时间可以忽略不计）------>
+		
+压缩的考虑：
+
+①Mapper的输入： 主要考虑每个文件的大小，如果文件过大，需要使用可以切片的压缩格式！
+②Reducer的输出： reducer的输出主要考虑，输出之后，是否需要下一个Job继续处理！
+					单个reducer输出的结果的大小！
+					如果需要被下个Job继续处理，且单个文件过大，也要使用可以切片的压缩格式！
+					
+③shuffle阶段：   速度快即可
+
+压缩的参数：
+		io.compression.codecs  ：  代表整个Job运行期间，可以使用哪些压缩格式！
+								配置这个参数后，配置的压缩格式会被自动初始化！
+								默认值： deflate,gzip,bzip2
+		mapreduce.map.output.compress: map阶段输出的key-value是否采用压缩
+								默认值： false
+		mapreduce.map.output.compress.codec： map阶段输出的key-value采用何种压缩
+								默认值： deflate
+		
+		mapreduce.output.fileoutputformat.compress： job在reduce阶段最终的输出是否采用压缩
+								默认值： false
+		mapreduce.output.fileoutputformat.compress.codec： job在reduce阶段最终的输出采用何种压缩
+								默认值： deflate
+								
+								
+		mapreduce.output.fileoutputformat.compress.type: 如果Job输出的文件以SequenceFile格式！
+										SequenceFile中的数据，要以何种形式进行压缩！
+								NONE：  是否压缩及如何压缩取决于操作系统
+								RECORD(默认)：  每个key-value对作为一个单位，压缩一次
+								BLOCK：   SequenceFile中的block，SequenceFile中的block默认为64K,
+												每个block压缩一次！
+												
+二、调度器
+
+1. FIFO调度器
+		FIFO调度器的特点就是单队列，所有的Job按照客户端提交的先后顺序，先到先服务！
+		
+		弊端：  如果当前队列中有一个大的Job，非常消耗资源，那么这个Job之后的其他Job都需要付额外的等待时间！
+				造成集群的资源利用率不足！
+				
+		解决：   采取多队列的配置
+		
+2. 容量调度器
+		容量调度器的本质是多个FIFO的队列组成！
+		
+		Hadoop默认使用就是容量调度器！
+		
+		特点： 容量
+					①每个队列可以配置一定的容量，空闲的资源可以匀给其他队列临时使用
+					②可以配置每个job使用的容量的限制，防止一个大的job独占所有资源
+					③可以配置每个用户可以使用的容量限制，防止当个用户占用所有资源
+					
+		优点：  ①配置灵活，及时刷新即可、
+				②资源利用率高
+				③安全，可以配置每个队列的访问用户限制
+				
+3. 公平调度器
+		公平调度器的设置和容量调度器大致相同，也是多条队列，每天队列都可以设置一定的容量！
+		每个Job，用户可以设置容量！
+		
+		区别： 公平调度器在调度策略上，采用最大最小公平算法，来调度Job，这个算法会保证
+					同一个队列中，所有已经提交，未运行结束的Job，获取到队列中的资源是平等的！
+					
+				导致在一个队列中，小的Job运行有优势，大的Job可能不能及时获取到必须的所有资源，但是不至于饿死！
+				
+		当前队列A ： 目前有20个CPU，20G 内存...资源
+		
+		每个Job理论上应该分配  5个CPU， 5G内存，在实际分配资源时，只考虑内存！
+		
+		队列A中已经提交，未运行的Job：
+		
+		job1 :  2 个MapTask   2 CPU,2G 内存
+				2 个ReduceTask   1 CPU,1G 内存
+				
+		job2 ： 2 个MapTask   4 CPU,2G 内存
+				2 个ReduceTask   2 CPU,2G 内存
+				
+		job3  :  1 个MapTask   1 CPU,1G 内存
+				1 个ReduceTask   1 CPU,1G 内存 
+				
+		job4 : 4 个MapTask   4 CPU,2G 内存
+				4 个ReduceTask   2 CPU,2G 内存
+		
