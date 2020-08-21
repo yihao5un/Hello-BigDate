@@ -74,8 +74,8 @@ Hive数据的存储
 
 1. Hive要分析的数据是存储在HDFS上
    		hive中的**库**的位置，在hdfs上就是一个**目录**
-   		hive中的**表**的位置，在hdfs上也是一个目录，在所在的库目录下创建了一个**子目录**
-   		hive中的**数据**，是存在在表**目录中的文件**
+      		hive中的**表**的位置，在hdfs上也是一个目录，在所在的库目录下创建了一个**子目录**
+      		hive中的**数据**，是存在在表**目录中的文件**
 
 2. 在hive中，存储的数据必须是**结构化的数据**，而且
    这个数据的格式要和表的属性紧密相关！
@@ -95,6 +95,191 @@ Hive数据的存储
    >
    >①metastore库的字符集必须是latin1
    >②5.5mysql，改 binlog_format=mixed | row 默认为statement mysql的配置文件： /etc/my.cnf
+
+
+
+Hive元数据配置到MySQL
+
+1. mysql-connector-java-5.1.27.tar.gz 解压 mysql-connector-java-5.1.27, 把mysql-connector-java-5.1.27目录下的mysql-connector-java-5.1.27-bin.jar拷贝到/opt/module/hive/lib/
+
+2. 配置Metastore到MySQL
+
+   在/opt/module/hive/conf目录下创建一个hive-site.xml
+
+   根据官方文档 拷贝数据到hive-site.xml
+
+   ```xml
+   https://cwiki.apache.org/confluence/display/Hive/AdminManual+MetastoreAdmin
+   <?xml version="1.0"?>
+   <?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+   <configuration>
+   	<property>
+   	  <name>javax.jdo.option.ConnectionURL</name>
+   	  <value>jdbc:mysql://hadoop102:3306/metastore?createDatabaseIfNotExist=true</value>
+   	  <description>JDBC connect string for a JDBC metastore</description>
+   	</property>
+   
+   	<property>
+   	  <name>javax.jdo.option.ConnectionDriverName</name>
+   	  <value>com.mysql.jdbc.Driver</value>
+   	  <description>Driver class name for a JDBC metastore</description>
+   	</property>
+   
+   	<property>
+   	  <name>javax.jdo.option.ConnectionUserName</name>
+   	  <value>root</value>
+   	  <description>username to use against metastore database</description>
+   	</property>
+   
+   	<property>
+   	  <name>javax.jdo.option.ConnectionPassword</name>
+   	  <value>000000</value>
+   	  <description>password to use against metastore database</description>
+   	</property>
+   </configuration>
+   ```
+
+   重启虚拟机(别忘了重启hadoop)
+
+
+
+HiveJDBC 访问
+
+- 启动hiveserver2 服务:  bin/hiveserver2
+
+- 启动beeline: bin/beeline
+
+- 连接hiveserver2
+
+  ```
+  beeline> !connect jdbc:hive2://hadoop102:10000
+  ```
+
+
+
+Hive常用命令
+
+usage:
+
+hive
+
+- -d --define <key=value> 　Variable subsitution to apply to hive
+
+```shell
+-d A=B  or --define A=B
+```
+
+定义一个变量，在hive启动后，可以使用${变量名}引用变量	  
+
+--database 　<databasename>     Specify the database to use　指定使用哪个库
+
+-  -e 　<quoted-query-string>     SQL from command line　指定命令行获取的一条引号引起来的sql，执行完返回结果后***退出cli!***
+
+- -f 　<filename>   SQL from files　执行一个文件中的sql语句！执行完返回结果后***退出cli!***
+- -H,--help       Print help information
+
+- --hiveconf   <property=value>   Use value for given property 在cli运行之前，定义一对属性
+
+  >hive在运行时，先读取 hadoop的全部8个配置文件，读取之后，再读取hive-default.xml
+  >再读取hive-site.xml， 如果使用--hiveconf，可以定义一组属性，这个属性会覆盖之前读到的参数的值！
+
+- --hivevar <key=value>   Variable subsitution to apply to hive
+  e.g. --hivevar A=B   作用和-d是一致的！
+
+-  -i    <filename>   Initialization SQL file   先初始化一个sql文件，之后不退出cli
+-  -S   --silent   Silent mode in interactive shell   不打印和结果无关的信息
+-  -v,  --verbose    Verbose mode (echo executed SQL to the console)
+
+
+
+Hive 常见属性配置
+
+- Hive数据仓库位置的配置
+
+1）Default数据仓库的最原始位置是在hdfs上的：/user/hive/warehouse路径下。
+
+2）在仓库目录下，没有对默认的数据库default创建文件夹。如果某张表属于default数据库，直接在数据仓库目录下创建一个文件夹。
+
+3）修改default数据仓库原始位置（将hive-default.xml.template如下配置信息拷贝到hive-site.xml文件中）。
+
+```xml
+<property>
+	<name>hive.metastore.warehouse.dir</name>
+	<value>/user/hive/warehouse</value>
+	<description>location of default database for the warehouse</description>
+</property>
+```
+
+- 查询后信息显示配置
+
+```xml
+<property>
+	<name>hive.cli.print.header</name>
+	<value>true</value>
+</property>
+
+<property>
+	<name>hive.cli.print.current.db</name>
+	<value>true</value>
+</property>
+```
+
+- Hive 运行日志信息配置
+
+(1) 修改/opt/module/hive/conf/hive-log4j.properties.template文件名称为 hive-log4j.properties
+
+(2) 在hive-log4j.properties文件中修改log存放位置 hive.log.dir=/opt/module/hive/logs
+
+
+
+Hive 数据类型
+
+> **STRUCT** 			
+>
+> 和c语言中的struct类似，都可以通过“点”符号访问元素内容。
+>
+> 例如，如果某个列的数据类型是STRUCT{first STRING, last STRING},那么第1个元素可以通过字段.first来引用。 	
+
+例子; 
+
+假设某表有如下一行，我们用JSON格式来表示其数据结构。在Hive下访问的格式为
+
+```json
+{
+    "name": "songsong",
+    "friends": ["bingbing" , "lili"] ,       //列表Array, 
+    "children": {                      		 //键值Map,
+        "xiao song": 18 ,
+        "xiaoxiao song": 19
+    }
+    "address": {                      		//结构Struct,
+        "street": "hui long guan" ,
+        "city": "beijing" 
+    }
+}
+```
+
+songsong,bingbing_lili,xiao song:18_xiaoxiao song:19,hui long guan_beijing
+yangyang,caicai_susu,xiao yang:18_xiaoxiao yang:19,chao yang_beijing
+
+Map和Struct的区别：  Struct中属性名是不变的！
+					 					Map中key可以变化的！
+
+> 注意： 在一个表中，array每个元素之间的分隔符和Map每个Entry之间的分隔符和struct每个属性之间的分隔符需要一致！
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
