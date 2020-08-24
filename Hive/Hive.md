@@ -269,17 +269,126 @@ Map和Struct的区别：  Struct中属性名是不变的！
 
 
 
+DDL数据定义
+
+- 数据库
+  - 增
+
+    ```sql
+    CREATE (DATABASE|SCHEMA) [IF NOT EXISTS] database_name
+      [COMMENT database_comment]  // 库的注释说明
+      [LOCATION hdfs_path]        // 库在hdfs上的路径
+      [WITH DBPROPERTIES (property_name=property_value, ...)]; // 库的属性
+    
+    create database  if not exists mydb2 
+    comment 'this is my db' 
+    location 'hdfs://hadoop101:9000/mydb2' 
+    with dbproperties('ownner'='jack','tel'='12345','department'='IT');
+    ```
+
+  - 删
+
+    ```sql
+    drop database 库名： 只能删除空库
+    drop database 库名 cascade： 删除非空库 // cascade是级联
+    ```
+
+  - 改
+
+    ```sql
+    use 库名: 切换
+    dbproperties: alter database mydb2 set dbproperties('ownner'='tom','empid'='10001');
+    同名的属性值会覆盖，之前没有的属性会新增
+    ```
+
+    > 用户可以使用ALTER DATABASE命令为某个数据库的DBPROPERTIES设置键-值对属性值，来描述这个数据库的属性信息.
+    >
+    > 数据库的其他元数据信息都是不可更改的，包括数据库名和数据库所在的目录位置。
+
+  - 查
+
+    ```sql
+    show databases: 查看当前所有的库
+    show tables in database: 查看库中所有的表
+    desc database 库名： 查看库的描述信息
+    desc database extended 库名： 查看库的详细描述信息
+    ```
+
+- 数据表
+
+  - 增
+
+    ```sql
+    CREATE [EXTERNAL] TABLE [IF NOT EXISTS] table_name 
+    [(col_name data_type [COMMENT col_comment], ...)]   //表中的字段信息
+    [COMMENT table_comment] //表的注释
+    
+    [PARTITIONED BY (col_name data_type [COMMENT col_comment], ...)] 
+    [CLUSTERED BY (col_name, col_name, ...) 
+    [SORTED BY (col_name [ASC|DESC], ...)] INTO num_buckets BUCKETS] 
+    
+    [ROW FORMAT row_format]  // 表中数据每行的格式，定义数据字段的分隔符，集合元素的分隔符等
+    
+    [STORED AS file_format] //表中的数据要以哪种文件格式来存储，默认为TEXTFILE（文本文件）可以设置为SequnceFile或 Paquret,ORC等
+    
+    [LOCATION hdfs_path]  //表在hdfs上的位置
+    ```
+
+    ***建表时，不带EXTERNAL，创建的表是一个MANAGED_TABLE(管理表，内部表)***
+    ***建表时，带EXTERNAL，创建的表是一个外部表！***
+
+    > Hive创建***内部表*** 时，会将数据移动到***数据仓库*** 指向的路径；
+    >
+    > 若创建外部表，仅记录数据所在的路径，不对数据的位置做任何改变
+    >
+    > ***在删除表的时候，内部表的元数据和数据会被一起删除，而外部表只删除元数据，不删除数据。***
+
+  - 删
+
+    ```sql
+    drop table 表名：删除表
+    ```
+
+  - 改
+
+  - 查
+
+    ```sql
+    desc  表名： 查看表的描述
+    desc formatted 表名： 查看表的详细描述
+    ```
 
 
 
+分区表
 
+```sql
+[PARTITIONED BY (col_name data_type [COMMENT col_comment], ...)] 
+```
 
+- 分区表
 
+  在建表时，指定了PARTITIONED BY ，这个表称为分区表
 
+- 分区概念
 
+  MR：在MapTask输出key-value时，为每个key-value计算一个区号。
 
+  同一个分区的数据，会被同一个reduceTask处理这个分区的数据，最终生成一个结果文件！
 
+  >	通过分区，将MapTask输出的key-value经过reduce后，分散到多个不同的结果文件中！
+  >	Hive:  将表中的数据，分散到表目录下的多个子目录(分区目录)中
+  >
 
+- 分区意义
+
+  分区的目的是为了就数据，分散到多个子目录中，在执行查询时，可以只选择查询某些子目录中的数据，加快查询效率！
+
+  只有分区表才有子目录(分区目录)
+  分区目录的名称由两部分确定：  分区列列名=分区列列值
+
+  将输入导入到指定的分区之后，数据会附加上分区列的信息！
+  分区的最终目的是在查询时，使用分区列进行过滤！
 
 
 
