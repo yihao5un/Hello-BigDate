@@ -392,6 +392,311 @@ DDL数据定义
 
 
 
+分区表的操作
+
+- 创建分区表
+
+  ```sql
+  create external table if not exists default.deptpart1(
+  deptno int,
+  dname string,
+  loc int
+  )
+  PARTITIONED BY(area string)
+  row format delimited fields terminated by '\t';
+  ```
+
+  ```sql
+  create external table if not exists default.deptpart2(
+  deptno int,
+  dname string,
+  loc int
+  )
+  PARTITIONED BY(area string)
+  row format delimited fields terminated by '\t'
+  location 'hdfs://hadoop101:9000/deptpart3';
+  ```
+
+  多级分区表，有多个分区字段
+
+  ```sql
+  create external table if not exists default.deptpart3(
+  deptno int,
+  dname string,
+  loc int
+  )
+  PARTITIONED BY(area string,province string)
+  row format delimited fields terminated by '\t';
+  ```
+
+- 分区的查询
+
+  show partitions 表名
+
+- 创建分区
+
+  ① alter table 表名 add partition(分区字段名=分区字段值) ;
+  	a)在hdfs上生成分区路径
+  	b)在mysql中metastore.partitions表中生成分区的元数据
+
+  ② 直接使用load命令向分区加载数据，如果分区不存在，load时自动帮我们生成分区
+
+  ③ 如果数据已经按照规范的格式，上传到了HDFS，可以使用修复分区命令自动生成分区的元数据
+  	msck repair table 表名;
+
+  > 注意事项：
+  > ①如果表是个分区表，在导入数据时，必须指定向哪个分区目录导入数据
+  > ②如果表是多级分区表，在导入数据时，数据必须位于最后一级分区的目录
+
+
+
+分桶表
+
+- 建表
+
+  ```sql
+  create table stu_buck(id int, name string)
+  clustered by(id) 
+  SORTED BY (id desc)
+  into 4 buckets
+  row format delimited fields terminated by '\t';
+  ```
+
+  临时表
+
+  ```sql
+  create table stu_buck_tmp(id int, name string)
+  row format delimited fields terminated by '\t';
+  ```
+
+- 导入数据
+
+  向分桶表导入数据时，必须运行MR程序，才能实现分桶操作。load的方式，只是执行put操作，无法满足分桶表导入数据，必须执行insert into。 
+  ***insert into 表名 values(),(),(),()***
+  ***insert into 表名 select 语句***
+
+  >导入数据之前：
+  >需要打开强制分桶开关： set hive.enforce.bucketing=true;
+  >需要打开强制排序开关： set hive.enforce.sorting=true;	
+  >insert into table stu_buck select * from stu_buck_tmp
+
+- 抽样查询
+
+**select * from 分桶表 tablesample(bucket x out of y on 分桶表分桶字段);**
+说明：
+
+1. 抽样查询的表必须是分桶表！
+
+2. bucket x out of y on 分桶表分桶字段
+   假设当前表一共分了z个桶
+   x:   从当前表的第几桶开始抽样 0<x<=y
+   y:    z/y 代表一共抽多少桶 要求y必须是z的因子或倍数
+
+3. 怎么抽： 从第x桶开始抽样，每间隔y桶抽一桶，知道抽满 z/y桶
+
+   bucket 1 out of 2 on id：  从第1桶(0号桶)开始抽，抽第x+y*(n-1)，一共抽2桶   ： 0号桶,2号桶
+
+4. select * from stu_buck tablesample(bucket 1 out of 2 on id)
+
+   *bucket 1 out of 1 on id：  从第1桶(0号桶)开始抽，抽第x+y*(n-1)，一共抽4桶   ： 0号桶,2号桶,1号桶,3号桶
+
+   bucket 2 out of 4 on id：  从第2桶(1号桶)开始抽，一共抽1桶   ： 1号桶
+
+   bucket 2 out of 8 on id：  从第2桶(1号桶)开始抽，一共抽0.5桶   ： 1号桶的一半
+
+
+
+DML导入
+
+- Load: 作用将数据直接加载到表目录中
+
+  ```sql
+  load  data [local] inpath 'xx' into table 表名 partition()
+  ```
+
+  > local:  如果导入的文件在本地文件系统，需要加上local，使用***put***将本地上传到hdfs.
+  >
+  > 不加local默认导入的文件是在hdfs，使用***mv***将源文件移动到目标目录.
+
+- insert： insert方式运行MR程序，通过程序将数据输出到表目录
+
+  在某些场景，必须使用insert方式来导入数据：
+
+  1. 向分桶表插入数据
+  2. 如果指定表中的数据，不是以纯文本形式存储，需要使用insert方式导入
+
+  ```sql
+  insert into|overwrite table 表名 select xxx | values(),(),() 
+  insert into: 向表中追加新的数据
+  insert overwrite： 先清空表中所有的数据，再向表中添加新的数据
+  ```
+
+  > 注意:
+  >
+  > 多插入模式(从一张源表查询，向多个目标表插入)
+  > from 源表
+  > insert xxxx  目标表  select xxx
+  > insert xxxx  目标表  select xxx
+  > insert xxxx  目标表  select xxx		
+  >
+  >  insert into table deptpart1 partition(area='huaxi') select deptno,dname,loc
+  >  insert into table deptpart1 partition(area='huaxinan') select deptno,dname,loc 
+
+  location: 在建表时，指定表的location为数据存放的目录
+
+  import :  不仅可以导入***数据***还可以顺便导入元数据(表***结构***)。Import只能导入export输出的内容！
+
+  ```sql
+  IMPORT [[EXTERNAL] TABLE 表名(新表或已经存在的表) [PARTITION (part_column="value"[, ...])]]
+  FROM 'source_path'
+  [LOCATION 'import_target_path']
+  ```
+
+  1. 如果向一个新表中导入数据，hive会根据要导入表的元数据自动创建表
+  2. 如果向一个已经存在的表导入数据，在导入之前会先检查表的结构和属性是否一致, 只有在表的结构和属性一致时，才会执行导入
+  3. 不管表是否为空，要导入的分区必须是不存在的
+      import external table importtable1  from '/export1'
+
+
+
+DML导出
+
+- insert: 将一条sql运算的结果，插入到指定的路径
+
+  ```sql
+  insert overwrite [local] directory '/opt/module/datas/export/student'
+  row format xxxx
+  select * from student;
+  ```
+
+- export: 既能导出数据，还可以导出元数据(表结构)
+
+  ```sql
+  export table 表名 [partiton(分区信息) ] to 'hdfspath'
+  ```
+
+  export会在hdfs的导出目录中，生成数据和元数据, 导出的元数据是和RDMS无关. 如果是分区表，可以选择将分区表的部分分区进行导出
+
+
+
+排序
+
+Hive的本质是MR，MR中如何排序的
+
+> 排序： 在reduce之前就已经排好序了，排序是shuffle阶段的主要工作
+> 分区：使用Partitioner来进行分区
+> 当reduceTaskNum>1，设置用户自己定义的分区器，如果没有使用HashParitioner!
+> HashParitioner只根据key的hashcode来分区！
+
+- 全排序：  结果只有一个(只有一个分区)，所有的数据整体有序 ORDER BY col_list 
+- 部分排序：  结果有多个(有多个分区)，每个分区内部有序 SORT BY col_list
+- 二次排序：  在排序时，比较的条件有多个
+
+
+
+函数
+
+- 查看函数
+  	函数有库的概念，系统提供的除外，系统提供的函数可以在任意库使用！
+  	查看当前库所有的函数：show functions;
+  	查看函数的使用： desc function 函数名
+  	查看函数的详细使用： desc function extended 函数名
+
+- 函数的分类
+  函数的来源： 
+
+  ①系统函数，自带的，直接使用即可
+  ②用户自定义的函数。
+  a)遵守hive函数类的要求，自定义一个函数类
+  b)打包函数，放入到hive的lib目录下，或在HIVE_HOME/auxlib
+  auxlib用来存放hive可以加载的第三方jar包的目录
+  c)创建一个函数，让这个函数和之前编写的类关联
+  函数有库的概念
+  d)使用函数
+
+  函数按照特征分：   
+
+  ①UDF： 用户定义的函数。 一进一出。 输入单个参数，返回单个结果！cast('a' as int) 返回 null	  
+
+  ②UDTF:  用户定义的表生成函数。 一进多出。传入一个参数(集合类型)，返回一个结果集！
+
+  ③UDAF： 用户定义的聚集函数。 多进一出。 传入一列多行的数据，返回一个结果(一列一行) count,avg,sum
+
+  > // 按照科目进行排名
+  > // 给每个学生的总分进行排名
+  > // 只查询每个科目的成绩的前2名
+  > //查询学生成绩，并显示当前科目最高分
+  > //查询学生成绩，并显示当前科目最低分
+  >
+  >
+  > 常用日期函数
+  > 		hive默认解析的日期必须是： 2019-11-24 08:09:10
+  > unix_timestamp:返回当前或指定时间的时间戳	
+  > from_unixtime：将时间戳转为日期格式
+  > current_date：当前日期
+  > current_timestamp：当前的日期加时间
+  >
+  > * to_date：抽取日期部分
+  >   year：获取年
+  >   month：获取月
+  >   day：获取日
+  >   hour：获取时
+  >   minute：获取分
+  >   second：获取秒
+  >   weekofyear：当前时间是一年中的第几周
+  >   dayofmonth：当前时间是一个月中的第几天
+  > * months_between： 两个日期间的月份，前-后
+  > * add_months：日期加减月
+  > * datediff：两个日期相差的天数，前-后
+  > * date_add：日期加天数
+  > * date_sub：日期减天数
+  > * last_day：日期的当月的最后一天
+  >
+  > date_format格式化日期   date_format( 2019-11-24 08:09:10,'yyyy-MM') mn
+  >
+  > *常用取整函数
+  > round： 四舍五入
+  > ceil：  向上取整
+  > floor： 向下取整
+  >
+  > 常用字符串操作函数
+  > upper： 转大写
+  > lower： 转小写
+  > length： 长度
+  >
+  > * trim：  前后去空格
+  >   lpad： 向左补齐，到指定长度
+  >   rpad：  向右补齐，到指定长度
+  > * regexp_replace： SELECT regexp_replace('100-200', '(\d+)', 'num')='num-num
+  >   使用正则表达式匹配目标字符串，匹配成功后替换！
+  >
+  > 集合操作
+  > size： 集合（map和list）中元素的个数
+  > map_keys： 返回map中的key
+  > map_values: 返回map中的value
+  >
+  > * array_contains: 判断array中是否包含某个元素
+  >   sort_array： 将array中的元素排序
+  >
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
