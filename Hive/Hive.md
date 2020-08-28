@@ -611,12 +611,13 @@ Hive的本质是MR，MR中如何排序的
   b)打包函数，放入到hive的lib目录下，或在HIVE_HOME/auxlib
   auxlib用来存放hive可以加载的第三方jar包的目录
   c)创建一个函数，让这个函数和之前编写的类关联
+
   函数有库的概念
   d)使用函数
 
   函数按照特征分：   
 
-  ①UDF： 用户定义的函数。 一进一出。 输入单个参数，返回单个结果！cast('a' as int) 返回 null	  
+  ①UDF： 用户定义的函数。 一进一出。 输入单个参数，返回单个结果！cast('a' as int) 返回 null
 
   ②UDTF:  用户定义的表生成函数。 一进多出。传入一个参数(集合类型)，返回一个结果集！
 
@@ -681,7 +682,11 @@ Hive的本质是MR，MR中如何排序的
 
 
 
+常用函数
 
+- NVL: 给值为NULL的数据赋值，它的格式是NVL( string1, replace_with)。它的功能是如果string1为NULL，则NVL函数返回replace_with的值，否则返回string1的值，如果两个参数都为NULL ，则返回NULL。
+
+  使用场景:①将NULL替换为默认值 ②运行avg()
 
 
 
