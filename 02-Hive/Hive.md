@@ -598,9 +598,9 @@ Hive的本质是MR，MR中如何排序的
 
 - 查看函数
   	函数有库的概念，系统提供的除外，系统提供的函数可以在任意库使用！
-  	查看当前库所有的函数：show functions;
-  	查看函数的使用： desc function 函数名
-  	查看函数的详细使用： desc function extended 函数名
+    	查看当前库所有的函数：show functions;
+    	查看函数的使用： desc function 函数名
+    	查看函数的详细使用： desc function extended 函数名
 
 - 函数的分类
   函数的来源： 
@@ -690,29 +690,184 @@ Hive的本质是MR，MR中如何排序的
 
 
 
+压缩和存储
+
+压缩
+
+- Hadoop源码编译支持Snappy压缩 (替换掉/opt/module/hadoop2.7/lib 文件夹)
+
+- Hadoop压缩配置
+
+  在 mapred-site.xml 文件中
+
+- 开启Map输出阶段压缩
+
+  开启map输出阶段压缩可以减少job中map和Reduce task间数据传输量
+
+  1．开启hive中间传输数据压缩功能
+
+  ```shell
+  hive (default)>set hive.exec.compress.intermediate=true;
+  ```
+
+  2．开启mapreduce中map输出压缩功能
+
+  ```shell
+  hive (default)>set mapreduce.map.output.compress=true;
+  ```
+
+  3．设置mapreduce中map输出数据的压缩方式
+
+  ```shell
+  hive (default)>set mapreduce.map.output.compress.codec= org.apache.hadoop.io.compress.SnappyCodec;
+  ```
+
+  4．执行查询语句
+
+  ```shell
+  hive (default)> select count(ename) name from emp;
+  ```
+
+  5．测试一下输出结果是否是压缩文件
+
+  ```shell
+  hive (default)> insert overwrite local directory '/opt/module/datas/distribute-result' select * from emp distribute by deptno sort by empno desc;
+  ```
+
+存储
+
+文件存储格式 ***TEXTFILE*** 、***SEQUENCEFILE***、***ORC***、***PARQUET***。
+
+- 列式存储和行式存储
+
+![image-20200902111028583](Hive.assets/image-20200902111028583.png)
+
+> TEXTFILE和SEQUENCEFILE的存储格式都是基于行存储的；
+>
+> ORC和PARQUET是基于列式存储的。
 
 
 
+企业级调优
+
+- Fentch 抓取
+
+  Fetch抓取是指，Hive中对某些情况的查询***可以不必使用MapReduce***计算。
+
+  例如：SELECT * FROM employees;在这种情况下，Hive可以简单地读取employee对应的存储目录下的文件，然后输出查询结果到控制台。
+
+  在***hive-default.xml.template***文件中hive.fetch.task.conversion默认是more，老版本hive默认是minimal，该属性修改为***more***以后，在全局查找、字段查找、limit查找等都不走mapreduce。
+
+  ```xml
+  <property>
+      <name>hive.fetch.task.conversion</name>
+      <value>more</value>
+      <description>
+        Expects one of [none, minimal, more].
+        Some select queries can be converted to single FETCH task minimizing latency.
+        Currently the query should be single sourced not having any subquery and should not have
+        any aggregations or distincts (which incurs RS), lateral views and joins.
+        0. none : disable hive.fetch.task.conversion
+        1. minimal : SELECT STAR, FILTER on partition columns, LIMIT only
+        2. more  : SELECT, FILTER, LIMIT only (support TABLESAMPLE and virtual columns)
+      </description>
+  </property>
+  ```
+
+- 本地模式
+
+  大多数的Hadoop Job是需要Hadoop提供的完整的***可扩展性***来处理大数据集的。
+
+  不过，有时Hive的输入***数据量是非常小***的。在这种情况下，为查询触发执行任务***消耗的时间***可能比实际job的执行时间要多的多。
+
+  对于大多数这种情况，Hive可以通过本地模式在***单台机器***上处理所有的任务。对于小数据集，执行时间可以明显被缩短。
+
+  用户可以通过设置***hive.exec.mode.local.auto***的值为***true***，来让Hive在适当的时候自动启动这个优化。
+
+  ```xml
+  set hive.exec.mode.local.auto=true;  //开启本地mr
+  //设置local mr的最大输入数据量，当输入数据量小于这个值时采用local  mr的方式，默认为134217728，即128M
+  set hive.exec.mode.local.auto.inputbytes.max=50000000;
+  //设置local mr的最大输入文件个数，当输入文件个数小于这个值时采用local mr的方式，默认为4
+  set hive.exec.mode.local.auto.input.files.max=10;
+  ```
+
+- 表的优化
+
+  将key相对分散，并且数据量小的表放在join的左边，这样可以有效减少内存溢出错误发生的几率；再进一步，可以使用map join让小的维度表（1000条以下的记录条数）先进内存。
+
+  在map端完成reduce。
+
+  实际测试发现：新版的hive已经对小表JOIN大表和大表JOIN小表进行了优化。小表放在左边和右边已经没有明显区别。
+
+- MapJoin
+
+  如果不指定MapJoin或者不符合MapJoin的条件，那么Hive解析器会将Join操作转换成Common Join，
+
+  即：在Reduce阶段完成join。容易发生数据倾斜。可以用MapJoin把小表全部加载到内存在map端进行join，避免reducer处理。
+
+  开启MapJoin参数设置
+
+  （1）设置自动选择Mapjoin
+
+  set hive.auto.convert.join = true; 默认为true
+
+  （2）大表小表的阈值设置（默认25M一下认为是小表）：
+
+  set hive.mapjoin.smalltable.filesize=25000000;
+
+  ![Selection_026](Hive.assets/Selection_026.png)
+
+JVM重用
+
+JVM重用是Hadoop调优参数的内容，其对Hive的性能具有非常大的影响，特别是对于很难避免小文件的场景或task特别多的场景，这类场景大多数执行时间都很短。
+
+Hadoop的默认配置通常是使用派生JVM来执行map和Reduce任务的。这时JVM的启动过程可能会造成相当大的开销，尤其是执行的job包含有成百上千task任务的情况。JVM重用可以使得JVM实例在同一个job中重新使用N次。N的值可以在Hadoop的mapred-site.xml文件中进行配置。通常在10-20之间，具体多少需要根据具体业务场景测试得出。
+
+```xml
+<property>
+  <name>mapreduce.job.jvm.numtasks</name>
+  <value>10</value>
+  <description>How many tasks to run per jvm. If set to -1, there is
+  no limit. 
+  </description>
+</property>
+```
+
+这个功能的缺点是，开启JVM重用将一直占用使用到的task插槽，以便进行重用，直到任务完成后才能释放。如果某个“不平衡的”job中有某几个reduce task执行的时间要比其他Reduce task消耗的时间多的多的话，那么保留的插槽就会一直空闲着却无法被其他的job使用，直到所有的task都结束了才会释放。
 
 
 
+推测执行
 
+在分布式集群环境下，因为程序Bug（包括Hadoop本身的bug），负载不均衡或者资源分布不均等原因，会造成同一个作业的***多个任务之间运行速度不一致***，有些任务的运行速度可能明显慢于其他任务（比如一个作业的某个任务进度只有50%，而其他所有任务经运行完毕），则这些任务会拖慢作业的整体执行进度。
 
+为了避免这种情况发生，Hadoop采用了***推测执行（Speculative Execution）机制***，它根据一定的法则推测出“拖后腿”的任务，并为这样的任务启动一个备份任务，让该任务与原始任务同时处理同一份数据，并最终选用最先成功运行完成任务的计算结果作为最终结果。
 
+设置开启推测执行参数：Hadoop的mapred-site.xml文件中进行配置
 
+```xml
+<property> 		  		
+	<name>mapreduce.map.speculative</name> 		  
+	<value>true</value> 		  
+	<description>If true, then multiple instances of some map tasks may be executed in parallel.
+	</description> 		
+	</property>
+	<property> 		  		.
+	name>mapreduce.reduce.speculative</name> 		  
+	<value>true</value> 		  
+	<description>If rue, then multiple instances of some reduce tasks may e executed in parallel.
+	</description> 		
+</property> 	
+```
 
+不过hive本身也提供了配置项来控制reduce-side的推测执行：
 
+```xml
+<property> 		    		
+	<name>hive.mapred.reduce.tasks.speculative.execution</name> 		    				<value>true</value> 		   
+	<description>Whether speculative execution for reducers should be turned on. 			</description> 		 
+</property> 	
+```
 
-
-
-
-
-
-
-
-
-
-
-
-
-
+关于调优这些推测执行变量，还很难给一个具体的建议。如果用户对于运行时的偏差非常敏感的话，那么可以将这些功能关闭掉。如果用户因为输入数据量很大而需要执行长时间的map或者Reduce task的话，那么启动推测执行造成的浪费是非常巨大大。
