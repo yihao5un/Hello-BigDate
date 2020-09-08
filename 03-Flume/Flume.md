@@ -331,15 +331,44 @@ a3.sinks.k3.channel = c3
 
 
 
+Flume进阶
 
+- Flume事务
 
+  ![Selection_032](Flume.assets/Selection_032.png)
 
+- Flume Agent 内部原理
 
+  ![image-20200908162841662](Flume.assets/image-20200908162841662.png)
 
+  重要组件
 
+  1. ChannelSelector (分为 Replicating 和 Multiplexing)
+  2. SinkProcessor (分为 DefaultSinkPeocessor LoadBalancing 和 FailoverSinkProcessor)
 
+- Flume  拓扑结构
 
+  简单串联
 
+  ![image-20200908164742147](Flume.assets/image-20200908164742147.png)
+
+  复制和多路复用
+
+  ![image-20200908165230494](Flume.assets/image-20200908165230494.png)
+
+  负载均衡和故障转移
+
+  ![image-20200908165355132](Flume.assets/image-20200908165355132.png)
+
+  聚合 (常用且实用)
+
+  每个服务器都部署一个Flume采集日志 传输到一个集中收集日志的Flume  再由此服务器传输到HDFS, Hive, HBase 等 进行日志分析.
+
+  ![image-20200908165527624](Flume.assets/image-20200908165527624.png)
+
+  
+
+​	
 
 
 
