@@ -366,31 +366,542 @@ Flume进阶
 
   ![image-20200908165527624](Flume.assets/image-20200908165527624.png)
 
-  
-
-​	
 
 
+事务
+
+- 数量关系:
+
+  batchSize: 每个***Source和Sink***都可以配置一个batchSize的参数, 代表一次性到channel中 put或者take 多少个event.
+
+  > bathch ***<=*** transactionCapaticy   
+  >
+  > transactionCapacity <= capacity
+
+  transactionCapacity: putList 和 takeList的初始值
+
+  capacity: channel 中创建的event的容量大小
+
+  putList: source 向 channel放入数据的***缓冲区*** , 在固定初始化时, 需要根据一个固定的size(在channel中设置)初始化.
+
+  ![flume](Flume.assets/flume.png)
+
+- put事务流程
+
+  source将封装好的event
+
+  1. 先放到putlist中, 放入完成后 
+  2. ***一次性***的commit() 这批event就可以写入到channnel 
+  3. 写入完成后 ***清空putlist*** 开始下一批数据的写入
+
+  > 若在放入putlist的时候发生了异常 那么执行rollback() 直接清空putList() 
+
+- take事务流程
+
+  不断从channel中拉取event
+
+  1. 先放入takeList中
+  2. 当一个batchSize的event***全部拉取到***takeList中之后，执行commit() 并清空takeList
+  3. 此时由sink执行***写出处理***
+
+  > 若在写出的时候发生了异常 执行回滚 将takeList中的所有event全部会滚到channel中
 
 
 
+AvroSource (多个Agent串联的场景)
+
+- 场景:
+
+  如果AgentA需要将Event对象发送到***其他的agent进程*** 中！
+  AgentA的sink，必须为***AvroSink***,其他的agent在接收时，必须选择***AvroSource***！
+
+- 组件:
+
+  1. avrosource: 用于监听一个avro的端口 从另一个avro客户端***接受event***
+
+     配置:
+
+     type	–	The component type name, needs to be avro
+     bind	–	hostname or IP address to listen on
+     port	–	Port # to bind to
+
+  2. avrosink: 将event转化为avro格式的event ***发送***到指定的主机和端口
+
+     配置:
+
+     type	–	The component type name, needs to be avro.
+     hostname	–	The hostname or IP address to bind to.
+     port	–	The port # to listen on.
+
+案例:
+
+hadoop101，agent1:   netcatsource---memorychannel--arvosink
+hadoop101，agent2:   avrosource----memorychannel--loggersink
+
+```xml
+#agent1
+#a1是agent的名称，a1中定义了一个叫r1的source，如果有多个，使用空格间隔
+a1.sources = r1
+a1.sinks = k1
+a1.channels = c1
+#组名名.属性名=属性值
+a1.sources.r1.type=netcat
+a1.sources.r1.bind=hadoop101
+a1.sources.r1.port=44444
+
+#定义sink
+a1.sinks.k1.type=avro
+a1.sinks.k1.hostname=hadoop102
+a1.sinks.k1.port=33333
+#定义chanel
+a1.channels.c1.type=memory
+a1.channels.c1.capacity=1000
+
+#连接组件 同一个source可以对接多个channel，一个sink只能从一个channel拿数据！
+a1.sources.r1.channels=c1
+a1.sinks.k1.channel=c1
+
+--------------------------------------------------------
+
+#agent2
+#a1是agent的名称，a1中定义了一个叫r1的source，如果有多个，使用空格间隔
+a1.sources = r1
+a1.sinks = k1
+a1.channels = c1
+#组名名.属性名=属性值
+a1.sources.r1.type=avro
+a1.sources.r1.bind=hadoop102
+a1.sources.r1.port=33333
+
+#定义sink
+a1.sinks.k1.type=logger
+
+#定义chanel
+a1.channels.c1.type=memory
+a1.channels.c1.capacity=1000
+
+#连接组件 同一个source可以对接多个channel，一个sink只能从一个channel拿数据！
+a1.sources.r1.channels=c1
+a1.sinks.k1.channel=c1
+```
 
 
 
+Multiplexing Channel Selector
+
+根据event header 属性, 参考用户自己配置映射信息, 将event发送到指定的channel。
+
+```shell
+a1.sources = r1
+a1.channels = c1 c2 c3 c4
+a1.sources.r1.selector.type = multiplexing
+a1.sources.r1.selector.header = state
+a1.sources.r1.selector.mapping.CZ = c1
+a1.sources.r1.selector.mapping.US = c2 c3
+a1.sources.r1.selector.default = c4
+```
+
+r1中每个event根据header中key为state的值，进行选择.
+
+如果state=CZ,这类event发送到c1
+
+如果state=US,这类event发送到c2，c3,
+
+如果state=其他，发送到c4
+
+案例:
+
+agent1:  在hadoop102
+
+```xml
+#a1是agent的名称，a1中定义了一个叫r1的source，如果有多个，使用空格间隔
+a1.sources = r1
+a1.sinks = k1 k2
+a1.channels = c1 c2 
+#组名名.属性名=属性值
+a1.sources.r1.type=exec
+a1.sources.r1.command=tail -f /home/atguigu/test
+#声明r1的channel选择器
+a1.sources.r1.selector.type = multiplexing
+a1.sources.r1.selector.header = state
+a1.sources.r1.selector.mapping.CZ = c1
+a1.sources.r1.selector.mapping.US = c2
+
+#使用拦截器为event加上某个header
+a1.sources.r1.interceptors = i1
+a1.sources.r1.interceptors.i1.type = static
+a1.sources.r1.interceptors.i1.key = state
+a1.sources.r1.interceptors.i1.value = CZ
+
+#定义chanel
+a1.channels.c1.type=memory
+a1.channels.c1.capacity=1000
+
+a1.channels.c2.type=memory
+a1.channels.c2.capacity=1000
+
+##定义sink
+a1.sinks.k1.type=avro
+a1.sinks.k1.hostname=hadoop101
+a1.sinks.k1.port=33333
+
+a1.sinks.k2.type=avro
+a1.sinks.k2.hostname=hadoop103
+a1.sinks.k2.port=33333
+
+#连接组件 同一个source可以对接多个channel，一个sink只能从一个channel拿数据！
+a1.sources.r1.channels=c1 c2
+a1.sinks.k1.channel=c1
+a1.sinks.k2.channel=c2
+
+-------------------------------------------------------
+
+a1.sources = r1
+a1.sinks = k1
+a1.channels = c1
+#组名名.属性名=属性值
+a1.sources.r1.type=avro
+a1.sources.r1.bind=hadoop101
+a1.sources.r1.port=33333
+
+
+#定义sink
+a1.sinks.k1.type=logger
+
+#定义chanel
+a1.channels.c1.type=memory
+a1.channels.c1.capacity=1000
+
+#连接组件 同一个source可以对接多个channel，一个sink只能从一个channel拿数据！
+a1.sources.r1.channels=c1
+a1.sinks.k1.channel=c1
+
+-------------------------------------------------------
+
+a1.sources = r1
+a1.sinks = k1
+a1.channels = c1
+#组名名.属性名=属性值
+a1.sources.r1.type=avro
+a1.sources.r1.bind=hadoop103
+a1.sources.r1.port=33333
+
+#定义sink
+a1.sinks.k1.type=logger
+
+
+#定义chanel
+a1.channels.c1.type=memory
+a1.channels.c1.capacity=1000
+
+a1.sources.r1.channels=c1
+a1.sinks.k1.channel=c1
+```
 
 
 
+Channel Selector
+
+- Replicating Channel Selector
+
+  复制的Channel选择器(默认的选择器)  
+
+  > 当一个source使用此选择器选择多个channel时, source会将event在每个channel都复制一份
+  >
+  > 当向可选的channel写入event时 即使发生异常 也会***忽略***
+
+- File Roll Sink
+
+  存储event到本地文件系统
+
+  必需配置：
+  type					 –	The component type name, needs to be file_roll.
+  sink.directory	 –	The directory where files will be stored
 
 
 
+案例: 
+
+(execsource----memory channel1----avrosink1)------(arvosource----memory channel----loggersink)
+					 ----memory channel2----avrosink2)------(arvosource----memory channel----filerollsink)
+
+agent1: 在hadoop102
+
+```xml
+#a1是agent的名称，a1中定义了一个叫r1的source，如果有多个，使用空格间隔
+a1.sources = r1
+a1.sinks = k1 k2
+a1.channels = c1 c2 
+#组件名.属性名=属性值
+a1.sources.r1.type=exec
+a1.sources.r1.command=tail -f /home/atguigu/test
+#声明r1的channel选择器
+a1.sources.r1.selector.type = replicating
+
+#定义chanel
+a1.channels.c1.type=memory
+a1.channels.c1.capacity=1000
+
+a1.channels.c2.type=memory
+a1.channels.c2.capacity=1000
+
+##定义sink
+a1.sinks.k1.type=avro
+a1.sinks.k1.hostname=hadoop101
+a1.sinks.k1.port=33333
+
+a1.sinks.k2.type=avro
+a1.sinks.k2.hostname=hadoop103
+a1.sinks.k2.port=33333
+
+#连接组件 同一个source可以对接多个channel，一个sink只能从一个channel拿数据！
+a1.sources.r1.channels=c1 c2
+a1.sinks.k1.channel=c1
+a1.sinks.k2.channel=c2
+
+-------------------------------------------------------
+
+a1.sources = r1
+a1.sinks = k1
+a1.channels = c1
+#组名名.属性名=属性值
+a1.sources.r1.type=avro
+a1.sources.r1.bind=hadoop101
+a1.sources.r1.port=33333
+
+
+#定义sink
+a1.sinks.k1.type=logger
+
+#定义chanel
+a1.channels.c1.type=memory
+a1.channels.c1.capacity=1000
+
+#连接组件 同一个source可以对接多个channel，一个sink只能从一个channel拿数据！
+a1.sources.r1.channels=c1
+a1.sinks.k1.channel=c1
+
+-------------------------------------------------------
+
+a1.sources = r1
+a1.sinks = k1
+a1.channels = c1
+#组名名.属性名=属性值
+a1.sources.r1.type=avro
+a1.sources.r1.bind=hadoop103
+a1.sources.r1.port=33333
+
+#定义sink
+a1.sinks.k1.type=file_roll
+a1.sinks.k1.sink.directory=/home/atguigu/flume
+
+
+#定义chanel
+a1.channels.c1.type=memory
+a1.channels.c1.capacity=1000
+
+a1.sources.r1.channels=c1
+a1.sinks.k1.channel=c1
+```
 
 
 
+SinkProcessor
+
+- Default Sink Processor
+
+  在Agent中若只有一个sink 默认就使用此Default Sink Processor 这个SinkProcessor是不强制用户将sink组成一个组
+
+  如果有多个sink，多个sink对接一个channel，不能选择Default Sink Processor
+
+- Fallover Sink Processor
+
+  Failover Sink Processor维护了一个多个sink的***有优先级的*** 列表，按照优先级保证，至少有一个sink是可以干活的！
+
+  如果根据优先级发现，优先级高的sink故障了，故障的sink会被转移到一个***故障池***中冷却！
+
+  在冷却时，故障的sink也会不管尝试发送event，一旦发送成功，此时会将故障的sink再移动到存活的池中！
+
+  配置;
+
+  sinks – Space-separated list of sinks that are participating in the group 
+  processor.type default The component type name, needs to be failover 
+  processor.priority.<sinkName> – Priority value. <sinkName> must be one of the sink instances associated with the current sink group A higher priority value Sink gets activated earlier. A larger absolute value indicates higher priority 
+
+  案例:
+
+  agent1:   execsource--memory
+
+  channel----avrosink1--------agent2: avroSource---memorychannel----loggersink
+  			  ----avrosink2--------agent3: avroSource---memorychannel----loggersink
 
 
 
+​		avrosink1的优先级高，优先被Failover Sink Processor选中，此时只有agent2可以输出event！
+​		一旦 agent2挂掉，此时avrosink1故障，由Failover Sink Processor选择剩下的avrosink2干活！
+
+```xml
+-----------------------hadoop102--agent1------------------
+#a1是agent的名称，a1中定义了一个叫r1的source，如果有多个，使用空格间隔
+a1.sources = r1
+a1.sinks = k1 k2
+a1.channels = c1
+
+a1.sinkgroups = g1
+a1.sinkgroups.g1.sinks = k1 k2
+#a1.sinkgroups.g1.processor.type = failover
+#a1.sinkgroups.g1.processor.priority.k1=100
+#a1.sinkgroups.g1.processor.priority.k2=90
+a1.sinkgroups.g1.processor.sinks=k1 k2
+a1.sinkgroups.g1.processor.type = load_balance
+#组名名.属性名=属性值
+a1.sources.r1.type=exec
+a1.sources.r1.command=tail -f /home/atguigu/test
+#声明r1的channel选择器
+a1.sources.r1.selector.type = replicating
+
+#定义chanel
+a1.channels.c1.type=memory
+a1.channels.c1.capacity=1000
+
+##定义sink
+a1.sinks.k1.type=avro
+a1.sinks.k1.hostname=hadoop101
+a1.sinks.k1.port=33333
+
+a1.sinks.k2.type=avro
+a1.sinks.k2.hostname=hadoop103
+a1.sinks.k2.port=33333
+
+#连接组件 同一个source可以对接多个channel，一个sink只能从一个channel拿数据！
+a1.sources.r1.channels=c1
+a1.sinks.k1.channel=c1
+a1.sinks.k2.channel=c1
+
+----------------------hadoop101----agent2------------------
+a1.sources = r1
+a1.sinks = k1
+a1.channels = c1
+#组名名.属性名=属性值
+a1.sources.r1.type=avro
+a1.sources.r1.bind=hadoop101
+a1.sources.r1.port=33333
+
+#定义sink
+a1.sinks.k1.type=logger
+
+#定义chanel
+a1.channels.c1.type=memory
+a1.channels.c1.capacity=1000
+
+#连接组件 同一个source可以对接多个channel，一个sink只能从一个channel拿数据！
+a1.sources.r1.channels=c1
+a1.sinks.k1.channel=c1
+
+----------------------hadoop103----agent3------------------
+a1.sources = r1
+a1.sinks = k1
+a1.channels = c1
+#组名名.属性名=属性值
+a1.sources.r1.type=avro
+a1.sources.r1.bind=hadoop103
+a1.sources.r1.port=33333
+
+
+#定义sink
+a1.sinks.k1.type=logger
+
+#定义chanel
+a1.channels.c1.type=memory
+a1.channels.c1.capacity=1000
+
+#连接组件 同一个source可以对接多个channel，一个sink只能从一个channel拿数据！
+a1.sources.r1.channels=c1
+a1.sinks.k1.channel=c1
+```
 
 
 
+Load balancing Sink Processor
 
+负载均衡的sink processor! Load balancing Sink Processor维持了sink组中active状态的sink!
+使用***round_robin*** 或 ***random*** 算法，来分散sink组中存活的sink之间的负载！
+
+必需配置：
+processor.sinks – Space-separated list of sinks that are participating in the group 
+processor.type default The component type name, needs to be load_balance 
+
+
+
+***Flume 面试题***
+
+1. ##### 你是如何实现Flume数据传输的监控的
+
+   使用第三方框架Ganglia实时监控Flume。
+
+2. ##### Flume的Source，Sink，Channel的作用？你们Source是什么类型？
+
+   ​	1、作用
+
+   （1）Source组件是专门用来收集数据的，可以处理各种类型、各种格式的日志数据，包括avro、thrift、exec、jms、spooling directory、netcat、sequence generator、syslog、http、legacy
+
+   （2）Channel组件对采集到的数据进行缓存，可以存放在Memory或File中。
+
+   （3）Sink组件是用于把数据发送到目的地的组件，目的地包括Hdfs、Logger、avro、thrift、ipc、file、Hbase、solr、自定义。
+
+   ​	2、我公司采用的Source类型为：
+
+   （1）监控后台日志：exec
+
+   （2）监控后台产生日志的端口：netcat Exec  spooldir
+
+3. ##### Flume的Channel Selectors
+
+4. ##### Flume参数调优
+
+   1. Source
+
+   增加Source个数（使用Tair Dir Source时可增加FileGroups个数）可以增大Source的读取数据的能力。
+
+   例如：当某一个目录产生的文件过多时需要将这个文件目录拆分成多个文件目录，同时配置好多个Source 以保证Source有足够的能力获取到新产生的数据。
+
+   ***batchSize***参数决定Source一次批量运输到Channel的event条数，适当调大这个参数可以提高Source搬运Event到Channel时的性能。
+
+   2. Channel 
+
+   type 选择***memory***时Channel的***性能最好***，但是如果Flume进程意外挂掉***可能会丢失数据***。
+
+   type选择***file***时Channel的***容错性更好***，但是***性能***上会比memory channel***差***。
+
+   使用file Channel时dataDirs配置多个不同盘下的目录可以提高性能。
+
+   ***Capacity*** 参数决定Channel可容纳最大的event条数。
+
+   ***transactionCapacity*** 参数决定每次Source往channel里面写的最大event条数和每次Sink从channel里面读的最大event条数。
+
+   ***transactionCapacity***需要大于Source和Sink的batchSize参数。
+
+   3. Sink 
+
+   增加Sink的个数可以增加Sink消费event的能力。Sink也不是越多越好够用就行，过多的Sink会占用系统资源，造成系统资源不必要的浪费。
+
+   ***batchSize***参数决定Sink一次批量从Channel读取的event条数，适当调大这个参数可以提高Sink从Channel搬出event的性能。
+
+5. ##### Flume的事务机制
+
+   Flume的事务机制（类似数据库的事务机制）：Flume使用***两个独立的事务***分别负责从Soucrce到Channel，以及从Channel到Sink的事件传递。
+
+   比如***spooling directory source*** 为***文件的每一行***创建一个事件，一旦事务中所有的事件全部传递到Channel且提交成功，那么Soucrce就将该文件标记为完成。
+
+   同理，事务以类似的方式处理从Channel到Sink的传递过程，如果因为某种原因使得事件无法记录，那么事务将会回滚且所有的事件都会保持到Channel中，等待重新传递。
+
+6. ##### Flume采集数据会丢失吗?
+
+   根据Flume的架构原理，Flume是***不可能丢失数据***的，其内部有***完善的事务机制***。
+
+   Source到Channel是事务性的，Channel到Sink是事务性的，因此这两个环节不会出现数据的丢失。
+
+   唯一可能丢失数据的情况是***Channel采用memoryChannel***，agent宕机导致数据丢失，或者Channel存储数据已满，导致Source不再写入，未写入的数据丢失。
+
+   Flume不会丢失数据，但是有可能造成***数据的重复***，例如数据已经成功由Sink发出，但是没有接收到响应，Sink会***再次发送***数据，此时可能会导致数据的重复。
 
