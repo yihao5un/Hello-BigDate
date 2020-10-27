@@ -122,10 +122,51 @@
 
   - Borker保存消息
 
-    1. 物理上把topic
-    2. 
+    1. 物理上把topic分成一个或多个patition（
 
+       > 对应 server.properties 中的 num.partitions=3配置）
+       >
+       > 每个patition物理上对应一个**文件夹**（该文件夹存储该patition的所有消息和索引文件）
 
+    2. 存储策略: 
+
+       基于时间、基于大小
+
+    3. zookeeper 存储结构
+
+       ![image-20201027110532815](kafka.assets/image-20201027110532815.png)
+
+  - 消费过程分析 (高级API和低级API)
+
+    1. 高级API
+
+       不用管理offset(通过zookeeper自行管理，记录上次的offset,  默认是1分钟更新一次offset)
+
+       不用管理分区、副本(系统自动管理)
+
+    2. 低级API
+
+       可以自己控制offset (妈妈再也不用担心我的offset， 想读哪里读哪里, 对zookeeper的依赖性降低)
+
+    3. 消费者组 (消费一个topic, 每个partition 同一时间只能由group中的一个消费者读取 ) 
+
+       ![Selection_038](kafka.assets/Selection_038.png)
+
+    4. 消费方式
+
+       **pull(拉)**模式从broker中自主读取数据
+
+       > 根据consumer的消费能力 以适合的速率消费消息
+       >
+       > 为了防止在pull的时候 broker没有数据 ，在pull中加入参数(等待给定的字节数) 允许消费者请求等待数据到达的"长轮询"中进行阻塞
+
+- Kafka API 
+
+  - a
+
+    
+
+  - 
 
 
 
