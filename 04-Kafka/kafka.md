@@ -433,27 +433,114 @@
 
 - Kafka Stream
 
+  一个流式处理系统，用于构建高可用**分布式**、**扩展性**、**容错**的**实时性**应用程序
+
+  > Kafka Stream是一个**库**, 不是框架。Spark 和 Storm 是流式处理**框架**
+
   
 
+  
 
+  ![image-20201029105623542](kafka.assets/image-20201029105623542.png)
 
+  
 
+  ***Kafka Stream 数据清洗***
 
+  实时处理单词中带有">>>"前缀的内容
 
+  > 例如: "xxx>>>matrix" 最终处理成 "matrix"
 
+  ![Selection_040](kafka.assets/Selection_040.png)
 
+  1. ***创建主类***
 
+     ```java
+     import java.util.Properties;
+     import org.apache.kafka.streams.KafkaStreams;
+     import org.apache.kafka.streams.StreamsConfig;
+     import org.apache.kafka.streams.processor.Processor;
+     import org.apache.kafka.streams.processor.ProcessorSupplier;
+     import org.apache.kafka.streams.processor.TopologyBuilder;
+     
+     public class Application {
+     
+     	public static void main(String[] args) {
+     
+     		// 定义输入的topic
+             String from = "first";
+             // 定义输出的topic
+             String to = "second";
+     
+             // 设置参数
+             Properties settings = new Properties();
+             settings.put(StreamsConfig.APPLICATION_ID_CONFIG, "logFilter");
+             settings.put(StreamsConfig.BOOTSTRAP_SERVERS_CONFIG, "hadoop102:9092");
+     
+             StreamsConfig config = new StreamsConfig(settings);
+     
+             // 构建拓扑
+             TopologyBuilder builder = new TopologyBuilder();
+     
+             builder.addSource("SOURCE", from)
+                    .addProcessor("PROCESS", new ProcessorSupplier<byte[], byte[]>() {
+     
+     					@Override
+     					public Processor<byte[], byte[]> get() {
+     						// 具体分析处理
+     						return new LogProcessor();
+     					}
+     				}, "SOURCE")
+                     .addSink("SINK", to, "PROCESS");
+     
+             // 创建kafka stream
+             KafkaStreams streams = new KafkaStreams(builder, config);
+             streams.start();
+     	}
+     }
+     ```
 
+     
 
+  2. ***具体业务处理***
 
+     ```java
+     import org.apache.kafka.streams.processor.Processor;
+     import org.apache.kafka.streams.processor.ProcessorContext;
+     
+     public class LogProcessor implements Processor<byte[], byte[]> {
+     	
+     	private ProcessorContext context;
+     	
+     	@Override
+     	public void init(ProcessorContext context) {
+     		this.context = context;
+     	}
+     
+     	@Override
+     	public void process(byte[] key, byte[] value) {
+     		String input = new String(value);
+     		
+     		// 如果包含“>>>”则只保留该标记后面的内容
+     		if (input.contains(">>>")) {
+     			input = input.split(">>>")[1].trim();
+     			// 输出到下一个topic
+     			context.forward("logProcessor".getBytes(), input.getBytes());
+     		}else{
+     			context.forward("logProcessor".getBytes(), input.getBytes());
+     		}
+     	}
+     
+     	@Override
+     	public void punctuate(long timestamp) {
+     		
+     	}
+     
+     	@Override
+     	public void close() {
+     		
+     	}
+     }
+     ```
 
-
-
-
-
-
-
-
-
-
-
+     
