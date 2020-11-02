@@ -82,37 +82,133 @@
 
        **HDFS**为Hbase提供最终的底层**数据存储服务**，同时为HBase提供高可用的支持。
 
-- a
+- HBase 安装、启动
+
+  - 启动Zookeeper、Hadoop、解压HBase、配置
+
+  - 启动HBase // 需要同步时间服务
+
+    ```shell
+    bin/HBase-daemon.sh start regionserver
+    ```
+
+  - Hbase 页面: http://hadoop101:16010
+
+  - Shell 操作和其他操作
+
+    ```shell
+    bin/HBase shell
+    status // 查看集群状态
+    version // 查看版本
+    whoami // 查看操作用户及组信息
+    table_help // 查看操作信息
+    help // 查看帮助信息
+    help 'get' // 查看帮助命令
+    ```
+
+  - 表操作
+
+    - list
+
+    - create: 
+
+      create '表名', { NAME => '列族名1', 属性名 => 属性值}, {NAME => '列族名2', 属性名 => 属性值}, … 
+
+      create 'student','info'
+
+    - desc/describe: 描述表
+
+    - disable: 对表进行维护或者修改的前必须停用
+
+    - enable: 启用表
+
+    - exits: 判断是否存在
+
+    - count
+
+    - drop: 删除表 删除之前必须停用
+
+    - truncate: 截断表
+
+    - get_split: 获取表对应的Region数。刚开始只有一个region
+
+    - alter: 修改表的属性(通常是某个列的属性)
+
+  - 数据操作
+
+    - scan:  可以按照rowkey的字典顺序来遍历指定的表的数据.
+
+      ```shell
+      scan 'student'
+      scan 'student',{STARTROW => '1001', STOPROW  => '1001'}
+      scan 'student',{STARTROW => '1001'}
+      ```
+
+    - put: 可以新增记录还可以为记录设置属性。
+
+      ```shell
+      put 'student','1001','info:name','Nick'
+      put 'student','1001','info:sex','male'
+      put 'student','1001','info:age','18'
+      put 'student','1002','info:name','Janna'
+      put 'student','1002','info:sex','female'
+      put 'student','1002','info:age','20'
+      ```
+
+    - get: 支持scan所支持的大部分属性。
+
+    - delete: 删除rowkey 的全部(某一列) 数据
+
+- HBase 进阶
+
+  - RegionServer架构
+
+    ![Selection_044](HBase.assets/Selection_044.png)
+
+  - 写流程
+
+    ![Selection_045](HBase.assets/Selection_045.png)
+
+    > 1）Client先访问**zookeeper**，获取hbase:meta表位于哪个Region Server。
+    >
+    > 2）访问对应的Region Server，获取hbase:meta表，根据读请求的namespace:table/rowkey，查询出目标数据位于哪个Region Server中的哪个Region中。并将该table的region信息以及meta表的位置信息**缓存**在客户端的meta cache，方便下次访问。
+    >
+    > 3）与目标Region Server进行通讯；
+    >
+    > 4）将数据顺序写入（追加）到**WA**L；
+    >
+    > 5）将数据写入对应的MemStore，数据会在MemStore进行排序；
+    >
+    > 6）向客户端**发送ack**；
+    >
+    > 7）等达到MemStore的刷写时机后，将数据刷写到HFile。
+
+  - 写流程
+
+    ![Selection_046](HBase.assets/Selection_046.png)
+
+    > 1）Client先访问zookeeper，获取hbase:meta表位于哪个Region Server。
+    >
+    > 2）访问对应的Region Server，获取hbase:meta表，根据读请求的namespace:table/rowkey，查询出目标数据位于哪个Region Server中的哪个Region中。并将该table的region信息以及meta表的位置信息缓存在客户端的meta cache，方便下次访问。
+    >
+    > 3）与目标Region Server进行通讯；
+    >
+    > 4）分别在**Block Cache（读缓存），MemStore和Store File（HFile）**中查询目标数据，并将查到的所有数据进行**合并**。此处所有数据是指同一条数据的不同版本（time stamp）或者不同的类型（Put/Delete）。
+    >
+    > 5）将查询到的数据块（Block，HFile数据存储单元，默认大小为64KB）缓存到Block Cache。
+    >
+    > 6）将合并后的最终结果返回给客户端。
+
+  - 
+
+  - 
+
+  
 
 - a
-
 - a
-
 - a
-
 - a
-
-- 、
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 - a
 - a
